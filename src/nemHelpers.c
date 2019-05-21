@@ -50,9 +50,10 @@ uint8_t readNetworkIdFromBip32path(uint32_t bip32Path[]) {
 //todo nonprintable ch + utf8
 void uint2Ascii(uint8_t *inBytes, uint8_t len, char *out){
     char *tmpCh = (char *)inBytes;
-    for(uint8_t j=0; j<len; j++){
+    for (uint8_t j=0; j<len; j++){
         out[j] = tmpCh[j];
     }
+    out[len] = '\0';
 }
 
 uint8_t *reverseBytes(uint8_t *sourceArray, uint16_t len){
@@ -167,4 +168,16 @@ void to_nem_public_key_and_address(cx_ecfp_public_key_t *inPublicKey, uint8_t in
     //step3: add checksum;/,l
     os_memmove(rawAddress + 21, buffer3, 4);
     base32_encode(rawAddress, sizeof(rawAddress), outNemAddress, 40);
+}
+
+unsigned int get_apdu_buffer_length() {
+	unsigned int len0 = G_io_apdu_buffer[APDU_BODY_LENGTH_OFFSET];
+	return len0;
+}
+
+void clean_raw_tx(unsigned char *raw_tx) {
+    uint16_t i;
+    for (i = 0; i < MAX_TX_RAW_LENGTH; i++) {
+        raw_tx[i] = 0;
+    }
 }

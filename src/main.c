@@ -40,6 +40,7 @@ uint32_t set_result_get_publicKey(void);
 #define P2_CHAINCODE 0x01
 #define P1_FIRST 0x00
 #define P1_MORE 0x80
+#define P1_LAST 0x90
 #define P2_SECP256K1 0x40
 #define P2_ED25519 0x80
 
@@ -50,7 +51,17 @@ uint32_t set_result_get_publicKey(void);
 #define OFFSET_LC 4
 #define OFFSET_CDATA 5
 
-#define MAX_RAW_TX 200
+/** notification to restart the hash */
+unsigned char hashTainted;
+
+/** raw transaction data. */
+unsigned char raw_tx[MAX_TX_RAW_LENGTH];
+
+/** current index into raw transaction. */
+unsigned int raw_tx_ix;
+
+/** current length of raw transaction. */
+unsigned int raw_tx_len;
 
 static const uint8_t const SIGN_PREFIX[] = { 0x53, 0x54, 0x58, 0x00 };
 
@@ -75,7 +86,6 @@ typedef struct transactionContext_t {
     uint8_t algo;
     uint8_t nemPublicKey[32];
     uint32_t bip32Path[MAX_BIP32_PATH];    
-    uint8_t rawTx[MAX_RAW_TX];
     uint32_t rawTxLength;
 } transactionContext_t;
 
@@ -473,6 +483,7 @@ unsigned int io_seproxyhal_touch_address_ok(const bagl_element_t *e) {
     uint32_t tx = set_result_get_publicKey();
     G_io_apdu_buffer[tx++] = 0x90;
     G_io_apdu_buffer[tx++] = 0x00;
+    PRINTF("Size %d\n", IO_APDU_BUFFER_SIZE);
     // Send back the response, do not restart the event loop
     io_exchange(CHANNEL_APDU | IO_RETURN_AFTER_TX, tx);
     // Display back the original UX
@@ -537,7 +548,7 @@ unsigned int io_seproxyhal_touch_tx_ok(const bagl_element_t *e) {
     tx = cx_eddsa_sign(&privateKey, 
                        CX_LAST, 
                        tmpCtx.transactionContext.algo, 
-                       tmpCtx.transactionContext.rawTx,
+                       raw_tx + 21,
                        tmpCtx.transactionContext.rawTxLength, 
                        NULL, 
                        0, 
@@ -558,13 +569,6 @@ unsigned int io_seproxyhal_touch_tx_ok(const bagl_element_t *e) {
     os_memmove(G_io_apdu_buffer + tx, nemPublicKey, 32);
     tx += 32;
 
-    /*
-    //signingData
-    G_io_apdu_buffer[tx++] = tmpCtx.transactionContext.rawTxLength;
-    os_memmove(G_io_apdu_buffer + tx, tmpCtx.transactionContext.rawTx, tmpCtx.transactionContext.rawTxLength);
-    tx += tmpCtx.transactionContext.rawTxLength;
-    */
-    
     G_io_apdu_buffer[tx++] = 0x90;
     G_io_apdu_buffer[tx++] = 0x00;
     
@@ -572,7 +576,6 @@ unsigned int io_seproxyhal_touch_tx_ok(const bagl_element_t *e) {
     io_exchange(CHANNEL_APDU | IO_RETURN_AFTER_TX, tx);
     // Display back the original UX
     ui_idle();
-
     return 0; // do not redraw the widget
 }
 
@@ -743,37 +746,22 @@ void handleGetPublicKey(uint8_t p1, uint8_t p2, uint8_t *dataBuffer,
 }
 
 
-void handleSign(uint8_t p1, uint8_t p2, uint8_t *workBuffer,
-                uint16_t dataLength, volatile unsigned int *flags,
-                volatile unsigned int *tx) {
+void display_tx(uint8_t *raw_tx, uint16_t dataLength, 
+                volatile unsigned int *flags, volatile unsigned int *tx ) {
     UNUSED(tx);
     uint8_t addressLength;
     uint32_t i;
-    if (p1 == P1_FIRST) {
-        tmpCtx.transactionContext.pathLength = workBuffer[0];
-        /*
-        if ((tmpCtx.transactionContext.pathLength < 0x01) ||
-            (tmpCtx.transactionContext.pathLength != MAX_BIP32_PATH)) {
-            PRINTF("BIP32_PATH_Invalid\n");
-            THROW(0x6a80);
-        }
-        */
-        if (tmpCtx.transactionContext.pathLength != MAX_BIP32_PATH) {
-            PRINTF("BIP32_PATH_Invalid\n");
-            THROW(0x6a80);
-        }        
-        workBuffer++;
-        dataLength--;
-        for (i = 0; i < tmpCtx.transactionContext.pathLength; i++) {
-            tmpCtx.transactionContext.bip32Path[i] =
-                (workBuffer[0] << 24) | (workBuffer[1] << 16) |
-                (workBuffer[2] << 8) | (workBuffer[3]);
-            workBuffer += 4;
-            dataLength -= 4;
-        }
+
+    tmpCtx.transactionContext.pathLength = raw_tx[0];
+    if (tmpCtx.transactionContext.pathLength != MAX_BIP32_PATH) {
+        PRINTF("BIP32_PATH_Invalid\n");
+        THROW(0x6a80);
     }
-    else {
-        THROW(0x6B00);
+
+    for (i = 0; i < tmpCtx.transactionContext.pathLength; i++) {
+        tmpCtx.transactionContext.bip32Path[i] =
+            (raw_tx[1 + i*4] << 24) | (raw_tx[2 + i*4] << 16) |
+            (raw_tx[3 + i*4] << 8) | (raw_tx[4 + i*4]);
     }
 
     tmpCtx.transactionContext.networkId = readNetworkIdFromBip32path(tmpCtx.transactionContext.bip32Path);
@@ -783,11 +771,8 @@ void handleSign(uint8_t p1, uint8_t p2, uint8_t *workBuffer,
         tmpCtx.transactionContext.algo = CX_SHA3;
     }
     
-    os_memmove(tmpCtx.transactionContext.rawTx, workBuffer, dataLength);
-    tmpCtx.transactionContext.rawTxLength = dataLength; 
-
-    uint8_t tmpRawTx[dataLength];
-    os_memmove(tmpRawTx, workBuffer, dataLength);
+    // Load dataLength of tx
+    tmpCtx.transactionContext.rawTxLength = dataLength - 21; 
     
     ux_step_count = 2;
 
@@ -796,9 +781,9 @@ void handleSign(uint8_t p1, uint8_t p2, uint8_t *workBuffer,
         uint64_t mosaicId;
         uint64_t mosaicAmount;
  
-        txContent.txType = getUint16(reverseBytes(&tmpRawTx[2], 2));    
+        txContent.txType = getUint16(reverseBytes(&raw_tx[21+2], 2));    
 
-        uint64_t fee = getUint64(reverseBytes(&tmpRawTx[2+2], 8));
+        uint64_t fee = getUint64(reverseBytes(&raw_tx[21+2+2], 8));
 
         if(fee == 0) {
             strcpy(maxFee, "0 cat:currency");
@@ -814,7 +799,7 @@ void handleSign(uint8_t p1, uint8_t p2, uint8_t *workBuffer,
                 //Recipient
                 uint8_t recipientBytesR[25];
                 uint8_t tmpAddress[40];
-                base32_encode(&tmpRawTx[2+2+8+8], 25, &tmpAddress, 40);
+                base32_encode(&raw_tx[21+2+2+8+8], 25, &tmpAddress, 40);
 
                 os_memset(addressSummary, 0, sizeof(addressSummary));
                 
@@ -824,19 +809,19 @@ void handleSign(uint8_t p1, uint8_t p2, uint8_t *workBuffer,
 
 
                 //msgSize
-                 uint16_t msgSize = getUint16(reverseBytes(&tmpRawTx[2+2+8+8+25], 2));   
+                uint16_t msgSize = getUint16(reverseBytes(&raw_tx[21+2+2+8+8+25], 2));
 
                 //msg payload
-                uint8_t msgType =  tmpRawTx[2+2+8+8+25+2+1];
+                uint8_t msgType =  raw_tx[21+2+2+8+8+25+2+1];
                 if (msgType == 0){
                     os_memset(msgPayload, 0, sizeof(msgPayload));                    
                     char toCh[MAX_PRINT_MESSAGE_LENGTH + 1];
                     //todo nonprintable ch
                     if(msgSize > MAX_PRINT_MESSAGE_LENGTH) {
-                        uint2Ascii(&tmpRawTx[2+2+8+8+25+2+1+1], MAX_PRINT_MESSAGE_LENGTH, toCh);
+                        uint2Ascii(&raw_tx[21+2+2+8+8+25+2+1+1], MAX_PRINT_MESSAGE_LENGTH, toCh);
                         SPRINTF(msgPayload, "  %s...\0", toCh);
                     }else{
-                        uint2Ascii(&tmpRawTx[2+2+8+8+25+2+1+1], msgSize-1, toCh);
+                        uint2Ascii(&raw_tx[21+2+2+8+8+25+2+1+1], msgSize-1, toCh);
                         os_memmove(msgPayload, toCh, msgSize-1);
                         msgPayload[msgSize] = "\0";
                     }
@@ -846,7 +831,7 @@ void handleSign(uint8_t p1, uint8_t p2, uint8_t *workBuffer,
 
                 //mosaic
                 os_memset(fullAmount, 0, sizeof(fullAmount));
-                uint8_t numMosaic = tmpRawTx[2+2+8+8+25+2];
+                uint8_t numMosaic = raw_tx[21+2+2+8+8+25+2];
                 if(numMosaic > 1){
                     SPRINTF(fullAmount, "<find %d mosaics>", numMosaic);
                     break;
@@ -855,11 +840,10 @@ void handleSign(uint8_t p1, uint8_t p2, uint8_t *workBuffer,
                 uint32_t offset = 48;
                 offset += (uint32_t)msgSize;
 
-                mosaicId = getUint64(reverseBytes(&tmpRawTx[offset], 8));
+                mosaicId = getUint64(reverseBytes(&raw_tx[21+offset], 8));
                 offset +=8;
 
-                mosaicAmount = getUint64(reverseBytes(&tmpRawTx[offset], 8));
-
+                mosaicAmount = getUint64(reverseBytes(&raw_tx[21+offset], 8));
 
                 uint8_t mosaicDivisibility;
                 switch(mosaicId){
@@ -879,14 +863,17 @@ void handleSign(uint8_t p1, uint8_t p2, uint8_t *workBuffer,
                 }
                 break;
             case REGISTER_NAMESPACE:
+            case NEMV1_PROVISION_NAMESPACE:
                 txContent.txType = REGISTER_NAMESPACE;
                 SPRINTF(txTypeName, "%s", "Namespace TX");
                 break;                
             case MOSAIC_DEFINITION:
+            case NEMV1_MOSAIC_DEFINITION:
                 txContent.txType = MOSAIC_DEFINITION;
                 SPRINTF(txTypeName, "%s", "Create Mosaic");
                 break; 
             case MOSAIC_SUPPLY_CHANGE:
+            case NEMV1_MOSAIC_SUPPLY_CHANGE:
                 txContent.txType = MOSAIC_SUPPLY_CHANGE;
                 SPRINTF(txTypeName, "%s", "Mosaic Supply ");
                 break;                     
@@ -895,13 +882,13 @@ void handleSign(uint8_t p1, uint8_t p2, uint8_t *workBuffer,
         }        
     }else{ //NEM_MAINNET || NEM_TESTNET
         //txType
-        uint32_t txType = getUint32(reverseBytes(&tmpRawTx[0], 4));
+        uint32_t txType = getUint32(reverseBytes(&raw_tx[21], 4));
         txContent.txType = (uint16_t *)txType;
 
-        uint32_t txVersion = getUint32(reverseBytes(&tmpRawTx[4], 4));
+        uint32_t txVersion = getUint32(reverseBytes(&raw_tx[21+4], 4));
 
         //fee
-        uint32_t fee = getUint32(reverseBytes(&tmpRawTx[4+4+4+4+32], 4));
+        uint32_t fee = getUint32(reverseBytes(&raw_tx[21+4+4+4+4+32], 4));
         print_amount((uint64_t *)fee, 6, "xem", &maxFee);
 
         switch(txContent.txType){
@@ -911,40 +898,58 @@ void handleSign(uint8_t p1, uint8_t p2, uint8_t *workBuffer,
 
                 //Recipient Address
                 char tmpAddress[41];
-                uint2Ascii(&tmpRawTx[4+4+4+4+32+4+4+4+4], 40, tmpAddress);
+                uint2Ascii(&raw_tx[21+4+4+4+4+32+4+4+4+4], 40, tmpAddress);
                 os_memset(addressSummary, 0, sizeof(addressSummary));                
                 os_memmove((void *)addressSummary, tmpAddress, 6);
                 os_memmove((void *)(addressSummary + 6), "~", 1);
                 os_memmove((void *)(addressSummary + 6 + 1), tmpAddress + 40 - 4, 4);
 
                 //msgSize
-                uint32_t msgSize = getUint32(reverseBytes(&tmpRawTx[4+4+4+4+32+4+4+4+4+40+4+4+4+4], 4));
-
+                uint16_t msgSizeIndex = 21+4+4+4+4+32+4+4+4+4+40+4+4+4+4;
+                uint32_t msgSize = getUint32(reverseBytes(&raw_tx[msgSizeIndex], 4));
+                
                 //amount
+                uint16_t amountIndex;
                 if(txVersion == MAIN_NETWORK_VERSION || txVersion == TEST_NETWORK_VERSION){
-                    uint32_t amount = getUint32(reverseBytes(&tmpRawTx[4+4+4+4+32+4+4+4+4+40], 4));
+                    amountIndex = 21+4+4+4+4+32+4+4+4+4+40;
+                    uint32_t amount = getUint32(reverseBytes(&raw_tx[amountIndex], 4));
                     print_amount((uint64_t *)amount, 6, "xem", &fullAmount);
                 }else{
-                    uint32_t numMosaic = getUint32(reverseBytes(&tmpRawTx[4+4+4+4+32+4+4+4+4+40+4+4+4+4+4+msgSize], 4));
+                    amountIndex = 21+4+4+4+4+32+4+4+4+4+40+4+4+4+4+4+msgSize;
+                    uint32_t numMosaic = getUint32(reverseBytes(&raw_tx[amountIndex], 4));
                     SPRINTF(fullAmount, "<find %d mosaics>", numMosaic);
                 }
 
                 //msg
-                uint32_t msgType = getUint32(reverseBytes(&tmpRawTx[4+4+4+4+32+4+4+4+4+40+4+4+4], 4));
+                uint16_t msgTypeIndex = 21+4+4+4+4+32+4+4+4+4+40+4+4+4;
+                uint16_t msgIndex = 21+4+4+4+4+32+4+4+4+4+40+4+4+4+4+4;
+                uint32_t msgType = getUint32(reverseBytes(&raw_tx[msgTypeIndex], 4));
                 if(msgType == 1) {
                     char toCh[MAX_PRINT_MESSAGE_LENGTH + 1];
                     if(msgSize > MAX_PRINT_MESSAGE_LENGTH){
-                        uint2Ascii(&tmpRawTx[4+4+4+4+32+4+4+4+4+40+4+4+4+4+4], MAX_PRINT_MESSAGE_LENGTH, toCh);
+                        uint2Ascii(&raw_tx[msgIndex], MAX_PRINT_MESSAGE_LENGTH, toCh);
                         SPRINTF(msgPayload, "  %s ...\0", toCh);
                     }else{
-                        uint2Ascii(&tmpRawTx[4+4+4+4+32+4+4+4+4+40+4+4+4+4+4], msgSize, toCh);
+                        uint2Ascii(&raw_tx[msgIndex], msgSize, toCh);
                         SPRINTF(msgPayload, "%s\0", toCh);
                     }
                 }else{
                     SPRINTF(msgPayload, "%s\0", "<encrypted msg>");
                 }     
 
-                break;          
+                break; 
+            case REGISTER_NAMESPACE:
+            case NEMV1_PROVISION_NAMESPACE:
+                SPRINTF(txTypeName, "%s", "Namespace TX");
+                break;                
+            case MOSAIC_DEFINITION:
+            case NEMV1_MOSAIC_DEFINITION:
+                SPRINTF(txTypeName, "%s", "Create Mosaic");
+                break; 
+            case MOSAIC_SUPPLY_CHANGE:
+            case NEMV1_MOSAIC_SUPPLY_CHANGE:
+                SPRINTF(txTypeName, "%s", "Mosaic Supply ");
+                break;         
             default:
                 SPRINTF(txTypeName, "tx type %d", txContent.txType);     
         }   
@@ -965,6 +970,48 @@ void handleSign(uint8_t p1, uint8_t p2, uint8_t *workBuffer,
     *flags |= IO_ASYNCH_REPLY;
 }
 
+void handleSign(volatile unsigned int *flags, volatile unsigned int *tx) {
+    // check the third byte (0x02) for the instruction subtype.
+    if ((G_io_apdu_buffer[OFFSET_P1] == P1_FIRST) || (G_io_apdu_buffer[OFFSET_P1] == P1_LAST)) {
+        clean_raw_tx(raw_tx);
+        hashTainted = 1;
+    }
+
+    // if this is the first transaction part, reset the hash and all the other temporary variables.
+    if (hashTainted) {
+        hashTainted = 0;
+        raw_tx_ix = 0;
+        raw_tx_len = 0;
+    }
+
+    // move the contents of the buffer into raw_tx, and update raw_tx_ix to the end of the buffer, 
+    // to be ready for the next part of the tx.
+    unsigned int len = get_apdu_buffer_length();
+    unsigned char * in = G_io_apdu_buffer + OFFSET_CDATA;
+    unsigned char * out = raw_tx + raw_tx_ix;
+    if (raw_tx_ix + len > MAX_TX_RAW_LENGTH) {
+        hashTainted = 1;
+        THROW(0x6D08);
+    }
+    os_memmove(out, in, len);
+    raw_tx_ix += len;
+
+    // set the buffer to end with a zero.
+    G_io_apdu_buffer[OFFSET_CDATA + len] = '\0';
+
+    // if this is the last part of the transaction, parse the transaction into human readable text, and display it.
+    if ((G_io_apdu_buffer[OFFSET_P1] == P1_MORE) || (G_io_apdu_buffer[OFFSET_P1] == P1_LAST))  {
+        raw_tx_len = raw_tx_ix;
+        raw_tx_ix = 0;
+
+        // parse the transaction into human readable text.
+        display_tx(&raw_tx, raw_tx_len, flags, tx);
+    } else {
+        // continue reading the tx
+        THROW(0x9000);  
+    }
+}
+
 void handleGetAppConfiguration(uint8_t p1, uint8_t p2, uint8_t *workBuffer,
                                uint16_t dataLength,
                                volatile unsigned int *flags,
@@ -982,71 +1029,7 @@ void handleGetAppConfiguration(uint8_t p1, uint8_t p2, uint8_t *workBuffer,
     THROW(0x9000);
 }
 
-
-void handleApdu(volatile unsigned int *flags, volatile unsigned int *tx) {
-    unsigned short sw = 0;
-
-    BEGIN_TRY {
-        TRY {
-            if (G_io_apdu_buffer[OFFSET_CLA] != CLA) {
-                THROW(0x6E00);
-            }
-
-            switch (G_io_apdu_buffer[OFFSET_INS]) {
-            case INS_GET_PUBLIC_KEY:
-                handleGetPublicKey(G_io_apdu_buffer[OFFSET_P1],
-                                   G_io_apdu_buffer[OFFSET_P2],
-                                   G_io_apdu_buffer + OFFSET_CDATA,
-                                   G_io_apdu_buffer[OFFSET_LC], flags, tx);
-                break;
-
-            case INS_SIGN:
-                handleSign(G_io_apdu_buffer[OFFSET_P1],
-                           G_io_apdu_buffer[OFFSET_P2],
-                           G_io_apdu_buffer + OFFSET_CDATA,
-                           G_io_apdu_buffer[OFFSET_LC], flags, tx);
-                break;
-
-            case INS_GET_APP_CONFIGURATION:
-                handleGetAppConfiguration(
-                    G_io_apdu_buffer[OFFSET_P1], G_io_apdu_buffer[OFFSET_P2],
-                    G_io_apdu_buffer + OFFSET_CDATA,
-                    G_io_apdu_buffer[OFFSET_LC], flags, tx);
-                break;
-
-            default:
-                THROW(0x6D00);
-                break;
-            }
-        }
-        CATCH_OTHER(e) {
-            switch (e & 0xF000) {
-            case 0x6000:
-                // Wipe the transaction context and report the exception
-                sw = e;
-                os_memset(&txContent, 0, sizeof(txContent));
-                break;
-            case 0x9000:
-                // All is well
-                sw = e;
-                break;
-            default:
-                // Internal error
-                sw = 0x6800 | (e & 0x7FF);
-                break;
-            }
-            // Unexpected exception => report
-            G_io_apdu_buffer[*tx] = sw >> 8;
-            G_io_apdu_buffer[*tx + 1] = sw;
-            *tx += 2;
-        }
-        FINALLY {
-        }
-    }
-    END_TRY;
-}
-
-void sample_main(void) {
+void nem_main(void) {
     volatile unsigned int rx = 0;
     volatile unsigned int tx = 0;
     volatile unsigned int flags = 0;
@@ -1071,10 +1054,42 @@ void sample_main(void) {
                 // no apdu received, well, reset the session, and reset the
                 // bootloader configuration
                 if (rx == 0) {
+                    hashTainted = 1;
                     THROW(0x6982);
                 }
 
-                handleApdu(&flags, &tx);
+                // if the buffer doesn't start with the magic byte, return an error.
+                if (G_io_apdu_buffer[OFFSET_CLA] != CLA) {
+                    hashTainted = 1;
+                    THROW(0x6E00);
+                }
+
+                // check the second byte (0x01) for the instruction.
+				switch (G_io_apdu_buffer[OFFSET_INS]) {
+                
+                case INS_GET_PUBLIC_KEY: 
+                handleGetPublicKey(G_io_apdu_buffer[OFFSET_P1],
+                                G_io_apdu_buffer[OFFSET_P2],
+                                G_io_apdu_buffer + OFFSET_CDATA,
+                                G_io_apdu_buffer[OFFSET_LC], &flags, &tx);
+                break;
+
+                //Sign a transaction
+                case INS_SIGN: 
+                handleSign(&flags, &tx);
+                break;
+
+                case INS_GET_APP_CONFIGURATION:
+                handleGetAppConfiguration(
+                    G_io_apdu_buffer[OFFSET_P1], G_io_apdu_buffer[OFFSET_P2],
+                    G_io_apdu_buffer + OFFSET_CDATA,
+                    G_io_apdu_buffer[OFFSET_LC], &flags, &tx);
+                break;
+
+                default:
+                    THROW(0x6D00);
+                    break;
+                }
             }
             CATCH_OTHER(e) {
                 switch (e & 0xF000) {
@@ -1185,6 +1200,9 @@ __attribute__((section(".boot"))) int main(void) {
     // exit critical section
     __asm volatile("cpsie i");
 
+    raw_tx_ix = 0;
+	hashTainted = 1;
+
     // ensure exception will work as planned
     os_boot();
 
@@ -1208,7 +1226,7 @@ __attribute__((section(".boot"))) int main(void) {
                 USB_power(1);
 
                 ui_idle();
-                sample_main();
+                nem_main();
             }
                 CATCH(EXCEPTION_IO_RESET) {
                     // reset IO and UX

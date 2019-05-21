@@ -60,8 +60,22 @@ static const uint16_t NEMV1_MULTISIG_SIGNATURE = 0x1002;
 static const uint16_t NEMV1_MULTISIG_TRANSACTION = 0x1004;
 static const uint16_t NEMV1_PROVISION_NAMESPACE = 0x2001;
 static const uint16_t NEMV1_MOSAIC_DEFINITION = 0x4001;
+static const uint16_t NEMV1_MOSAIC_SUPPLY_CHANGE = 0x4002;
 static const uint16_t NEMV1_MOSAIC_SUPPLY = 0x4002;
 
+/**
+ * Nano S has 320 KB flash, 10 KB RAM, uses a ST31H320 chip.
+ * This effectively limits the max size
+ * So we can only display 9 screens of data, and can only sign transactions up to 1kb in size.
+ * max size of a transaction, binary will not compile if we try to allow transactions over 1kb.
+ */
+static const uint16_t MAX_TX_RAW_LENGTH = 512;
+
+/** length of the APDU (application protocol data unit) header. */
+static const uint8_t APDU_HEADER_LENGTH = 5;
+
+/** offset in the APDU header which says the length of the body. */
+static const uint8_t APDU_BODY_LENGTH_OFFSET = 4;
 
 /*
 mosaicId:
@@ -82,3 +96,9 @@ uint16_t getUint16(uint8_t *buffer);
 uint32_t getUint32(uint8_t *data);
 uint64_t getUint64(uint8_t *data);
 void to_nem_public_key_and_address(cx_ecfp_public_key_t *inPublicKey, uint8_t inNetworkId, unsigned int inAlgo, uint8_t *outNemPublicKey, unsigned char *outNemAddress);
+
+/** returns the length of the transaction in the buffer. */
+unsigned int get_apdu_buffer_length();
+
+/** Clean the buffer of tx. */
+void clean_raw_tx(unsigned char *raw_tx);
