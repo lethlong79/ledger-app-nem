@@ -26,16 +26,16 @@ APP_LOAD_PARAMS=--appFlags 0x40 --path "44'/43'" --curve secp256k1 --curve ed255
 
 APPVERSION_M=0
 APPVERSION_N=0
-APPVERSION_P=9
+APPVERSION_P=1
 APPVERSION=$(APPVERSION_M).$(APPVERSION_N).$(APPVERSION_P)
 DEFINES   += UNUSED\(x\)=\(void\)x
 DEFINES   += APPVERSION=\"$(APPVERSION)\"
 
 #prepare hsm generation
 ifeq ($(TARGET_NAME),TARGET_BLUE)
-ICONNAME=app_XRP.gif
+ICONNAME=app_NEM.gif
 else
-ICONNAME=icon.gif
+ICONNAME=icon_NEM.gif
 endif
 
 

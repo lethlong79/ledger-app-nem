@@ -147,12 +147,13 @@ const ux_menu_entry_t menu_main[];
 
 const ux_menu_entry_t menu_about[] = {
     {NULL, NULL, 0, NULL, "Version", APPVERSION, 0, 0},
-    {NULL, NULL, 0, NULL, "Author", "009", 0, 0},
+    {NULL, NULL, 0, NULL, "Author", "FDS", 0, 0},
+    {NULL, NULL, 0, NULL, "Co-Author", "009", 0, 0},
     {menu_main, NULL, 1, &C_icon_back, "Back", NULL, 61, 40},
     UX_MENU_END};
 
 const ux_menu_entry_t menu_main[] = {
-    {NULL, NULL, 0, &C_icon_XRP, "welcome to", "  NEM wallet", 33, 12},
+    {NULL, NULL, 0, &C_icon_NEM, "Welcome to", "  NEM wallet", 33, 12},
     {menu_about, NULL, 0, NULL, "About", NULL, 0, 0},
     {NULL, os_sched_exit, 0, &C_icon_dashboard, "Quit app", NULL, 50, 29},
     UX_MENU_END};
@@ -276,7 +277,7 @@ const char * const ui_approval_details[][2] = {
     {"recipient", addressSummary},
     {"message", msgPayload},
     {"txType", txTypeName},
-    {"fees", maxFee},
+    {"network fees", maxFee},
 };
 
 const bagl_element_t ui_approval_nanos[] = {
@@ -351,46 +352,6 @@ const bagl_element_t ui_approval_nanos[] = {
      NULL,
      NULL,
      NULL},
-
-     /*
-    {{BAGL_LABELINE, 0x03, 0, 12, 128, 32, 0, 0, 0, 0xFFFFFF, 0x000000,
-      BAGL_FONT_OPEN_SANS_REGULAR_11px | BAGL_FONT_ALIGNMENT_CENTER, 0},
-     "Address",
-     0,
-     0,
-     0,
-     NULL,
-     NULL,
-     NULL},
-    {{BAGL_LABELINE, 0x03, 16, 26, 96, 12, 0, 0, 0, 0xFFFFFF, 0x000000,
-      BAGL_FONT_OPEN_SANS_EXTRABOLD_11px | BAGL_FONT_ALIGNMENT_CENTER, 0},
-     (char *)addressSummary,
-     0,
-     0,
-     0,
-     NULL,
-     NULL,
-     NULL},
-
-    {{BAGL_LABELINE, 0x04, 0, 12, 128, 32, 0, 0, 0, 0xFFFFFF, 0x000000,
-      BAGL_FONT_OPEN_SANS_REGULAR_11px | BAGL_FONT_ALIGNMENT_CENTER, 0},
-     "Fees",
-     0,
-     0,
-     0,
-     NULL,
-     NULL,
-     NULL},
-    {{BAGL_LABELINE, 0x04, 23, 26, 82, 12, 0x80 | 10, 0, 0, 0xFFFFFF, 0x000000,
-      BAGL_FONT_OPEN_SANS_EXTRABOLD_11px | BAGL_FONT_ALIGNMENT_CENTER, 26},
-     (char *)maxFee,
-     0,
-     0,
-     0,
-     NULL,
-     NULL,
-     NULL},
-     */
 
 };
 
@@ -663,7 +624,7 @@ void handleGetPublicKey(uint8_t p1, uint8_t p2, uint8_t *dataBuffer,
     uint8_t p2Chain = p2 & 0x3F;
     cx_curve_t curve;
 
-    //set default need confirm //009
+    //set default need confirm
     p1 = P1_CONFIRM;
 
     //bip32PathLength shold be 5
@@ -938,6 +899,12 @@ void display_tx(uint8_t *raw_tx, uint16_t dataLength,
                 }     
 
                 break; 
+            case NEMV1_MULTISIG_SIGNATURE:
+                SPRINTF(txTypeName, "%s", "Mulisig signature");
+                break;
+            case NEMV1_MULTISIG_TRANSACTION:
+                SPRINTF(txTypeName, "%s", "Mulisig TX");
+                break;
             case REGISTER_NAMESPACE:
             case NEMV1_PROVISION_NAMESPACE:
                 SPRINTF(txTypeName, "%s", "Namespace TX");
@@ -1213,15 +1180,6 @@ __attribute__((section(".boot"))) int main(void) {
         BEGIN_TRY {
             TRY {
                 io_seproxyhal_init();
-
-                /*
-                if (N_storage.initialized != 0x01) {
-                    internalStorage_t storage;
-                    storage.initialized = 0x01;
-                    nvm_write(&N_storage, (void *)&storage,
-                              sizeof(internalStorage_t));
-                }
-                */
 
                 USB_power(1);
 

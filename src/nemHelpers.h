@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   XRP Wallet
+*   NEM Wallet
 *   (c) 2017 Ledger
 *
 *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -66,8 +66,8 @@ static const uint16_t NEMV1_MOSAIC_SUPPLY = 0x4002;
 /**
  * Nano S has 320 KB flash, 10 KB RAM, uses a ST31H320 chip.
  * This effectively limits the max size
- * So we can only display 9 screens of data, and can only sign transactions up to 1kb in size.
- * max size of a transaction, binary will not compile if we try to allow transactions over 1kb.
+ * So we can only sign transactions up to 512Bytes in size.
+ * max size of a transaction, binary will not compile if we try to allow transactions over 512Bytes.
  */
 static const uint16_t MAX_TX_RAW_LENGTH = 512;
 
