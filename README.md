@@ -1,8 +1,15 @@
 # ledger-app-nem
 NEM wallet application for Nano S
 
-Modify `source` path for yourself in `load.sh`, `test-TX-Address-MijinTestnet.sh`, `test-TX-Address-NEMMainnet.sh`
+# See the [Ledger's documentation](https://ledger.readthedocs.io/en/latest/) to get started.
 
-1. `load.sh`: make and install app
-2. `test-TX-Address-MijinTestnet.sh`: test sign and address for MijinTestnet
-3. `test-TX-Address-NEMMainnet.sh`: test sign and address for NEMMainnet
+# Install the application on your Ledger Nano S device
+1. Modify `source` path for yourself in `load.sh`.
+1. Run `load.sh` file to make and install app
+```
+./load.sh
+```
+
+# Test
+1. Setup [Python tools](https://github.com/LedgerHQ/blue-loader-python) for Ledger Nano S.
+1. Run the test cases on test directory.
