@@ -18,7 +18,11 @@
 #include "os.h"
 #include "cx.h"
 #define MAX_BIP32_PATH 5
+
 #define MAX_PRINT_MESSAGE_LENGTH 16
+#define MAX_PRINT_MAIN_INFOR_LENGTH 40
+#define MAX_PRINT_EXTRA_INFOR_LENGTH 16
+#define MAX_PRINT_DETAIL_NAME_LENGTH 15
 //#define MAX_UX_CALLBACK_INTERVAL 2
 
 static const int MAX_UX_CALLBACK_INTERVAL = 2;
@@ -102,3 +106,7 @@ unsigned int get_apdu_buffer_length();
 
 /** Clean the buffer of tx. */
 void clean_raw_tx(unsigned char *raw_tx);
+
+int compare_strings(char a[], char b[]);
+
+int string_length(char s[]);

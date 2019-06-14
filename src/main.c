@@ -98,12 +98,14 @@ txContent_t txContent;
 
 volatile uint8_t fidoTransport;
 volatile int maxInterval;
-volatile char msgPayload[MAX_PRINT_MESSAGE_LENGTH + 8];
-volatile char addressSummary[40];
+volatile char txTypeName[30];
 volatile char fullAddress[40];
-volatile char txTypeName[50];
-volatile char fullAmount[50];
-volatile char maxFee[50];
+
+//Registers save information to show on the top line of screen
+volatile char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH];
+//Registers save information to show on the bottom line of screen
+volatile char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH];
+volatile char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH];
 
 bagl_element_t tmp_element;
 
@@ -273,11 +275,18 @@ unsigned int ui_address_nanos_button(unsigned int button_mask,
 
 #if defined(TARGET_NANOS)
 const char * const ui_approval_details[][2] = {
-    {"amount", fullAmount},
-    {"recipient", addressSummary},
-    {"message", msgPayload},
-    {"txType", txTypeName},
-    {"network fees", maxFee},
+    {detailName[0], mainInfo[0]},
+    {detailName[1], mainInfo[1]},
+    {detailName[2], mainInfo[2]},
+    {detailName[3], mainInfo[3]},
+    {detailName[4], extraInfo[0]},
+    {detailName[5], extraInfo[1]},
+    {detailName[6], extraInfo[2]},
+    {detailName[7], extraInfo[3]},
+    {detailName[8], extraInfo[4]},
+    {detailName[9], extraInfo[5]},
+    {detailName[10], extraInfo[6]},
+    {detailName[11], extraInfo[7]},
 };
 
 const bagl_element_t ui_approval_nanos[] = {
@@ -376,6 +385,7 @@ unsigned int ui_approval_prepro(const bagl_element_t *element) {
     if (element->component.userid > 0) {
         // display the meta element when at least bigger
         display = (ux_step == element->component.userid - 1) || (element->component.userid >= 0x02 && ux_step >= 1);
+    PRINTF("check ux_step trong ui_approval_prepro: %d\n", ux_step);
         if (display) {
             switch (element->component.userid) {
             case 0x01:                           
@@ -384,27 +394,31 @@ unsigned int ui_approval_prepro(const bagl_element_t *element) {
             case 0x02:
             case 0x12:
                 os_memmove(&tmp_element, element, sizeof(bagl_element_t));                
-                if ((txContent.txType != TRANSFER) && (txContent.txType != NEMV1_TRANSFER) ) {
-                    ux_step = 5;                    
-                }
+                // if ((txContent.txType != TRANSFER) && (txContent.txType != NEMV1_TRANSFER) ) {
+                //     // Just show the fees if it is not normal transaction.
+                //     ux_step = 5;  
+                // }
                 display = ux_step - 1;
                 switch(display) {
-                    case 0: // amount
-                    case 1: // address
+                    case 0: // recipient address 
                     display_detail:
                         tmp_element.text = ui_approval_details[display][(element->component.userid)>>4];
                         break;
-                    case 2: // msgPayload
-                        goto display_detail;
-                    case 3: // txType
-                        /*
-                        SPRINTF(txType, "%s", txContent.txType);
-                        display=3;
-                        goto display_detail; */
-                        // no break is intentional
-                    case 4: // fees           
-                        maxInterval--;//back home               
-                        display=4;
+                    case 1: // message
+                    case 2: // fees
+                    case 3: // amount
+                    case 4: // mosaic 1
+                    case 5: // mosaic 2
+                    case 6: // mosaic 3                     
+                    case 7: // mosaic 4                     
+                    case 8: // mosaic 5                     
+                    case 9: // mosaic 6                     
+                    case 10: // mosaic 7                     
+                    case 11: // mosaic 8                     
+                    case 12: // mosaic 9
+                        if (display == ux_step_count - 1) {
+                            maxInterval--;//back home 
+                        }                     
                         goto display_detail;
                 }                                    
                 UX_CALLBACK_SET_INTERVAL(MAX(
@@ -735,192 +749,341 @@ void display_tx(uint8_t *raw_tx, uint16_t dataLength,
     // Load dataLength of tx
     tmpCtx.transactionContext.rawTxLength = dataLength - 21; 
     
-    ux_step_count = 2;
+    //NEM_MAINNET || NEM_TESTNET
+    //txType
+    uint32_t txType = getUint32(reverseBytes(&raw_tx[21], 4));
+    txContent.txType = (uint16_t *)txType;
+    PRINTF("Type: %x\n", txContent.txType);
 
-    if(tmpCtx.transactionContext.networkId == MIJIN_MAINNET || tmpCtx.transactionContext.networkId == MIJIN_TESTNET){
-        uint8_t numMosaic;
-        uint64_t mosaicId;
-        uint64_t mosaicAmount;
- 
-        txContent.txType = getUint16(reverseBytes(&raw_tx[21+2], 2));    
+    uint32_t txVersion = getUint32(reverseBytes(&raw_tx[21+4], 4));
 
-        uint64_t fee = getUint64(reverseBytes(&raw_tx[21+2+2], 8));
+    //fee
+    uint64_t fee = getUint32(reverseBytes(&raw_tx[21+4+4+4+4+32], 4));
+    print_amount((uint64_t *)fee, 6, "xem", &mainInfo[2]);
+    SPRINTF(detailName[2], "%s", "Network Fee");
 
-        if(fee == 0) {
-            strcpy(maxFee, "0 cat:currency");
-        }else{
-            print_amount(fee, 6, "cat:currency", &maxFee);
-        }
-        switch(txContent.txType){
-            case TRANSFER: //Transfer
-                ux_step_count = 5;
-                txContent.txType = TRANSFER;
-                SPRINTF(txTypeName, "%s", "Transfer TX");
+    //Recipient Address
+    char tmpAddress[41];
 
-                //Recipient
-                uint8_t recipientBytesR[25];
-                uint8_t tmpAddress[40];
-                base32_encode(&raw_tx[21+2+2+8+8], 25, &tmpAddress, 40);
+    //msg
+    uint16_t lengthOfMessFeildIndex;
+    uint32_t lengthOfMessFeild;
+    uint16_t msgSizeIndex;
+    uint32_t msgSize;
+    uint16_t msgTypeIndex;
+    uint16_t msgIndex;
+    uint32_t msgType;
+    char msg[MAX_PRINT_MESSAGE_LENGTH + 1];
 
-                os_memset(addressSummary, 0, sizeof(addressSummary));
+    //mosaics
+    uint16_t numberOfMosaicsIndex;
+    uint8_t numberOfMosaics; 
+    uint16_t mosaicIndex;
+
+    //amount
+    uint16_t amountIndex;
+    uint32_t amount; 
+
+    //Namespace ID
+    uint16_t lengthOfIDIndex;
+    uint32_t lengthOfID;
+    uint16_t IDNameIndex;
+
+    //Mosaic Name
+    uint16_t lengthOfNameIndex;
+    uint32_t lengthOfName;
+    uint16_t nameIndex;
+    char IDName[MAX_PRINT_EXTRA_INFOR_LENGTH];
+    char name[MAX_PRINT_EXTRA_INFOR_LENGTH];
+
+    //Supply type
+    uint8_t supplyType; 
+
+    //Quantity
+    uint16_t quantityIndex;
+    uint32_t quantity;
+
+    //Array index
+    uint8_t arrayIndex; 
+
+    switch(txContent.txType){
+        case NEMV1_TRANSFER: //Transfer  
+            ux_step_count = 5;
+            SPRINTF(txTypeName, "%s", "transfer tx");
+
+            //Address
+            SPRINTF(detailName[0], "%s", "Recipient");
+            uint2Ascii(&raw_tx[21+4+4+4+4+32+4+4+4+4], 40, tmpAddress);
+    PRINTF("Address: %s\n", tmpAddress);
+            os_memset(mainInfo[0], 0, sizeof(mainInfo[0]));                
+            os_memmove((void *)mainInfo[0], tmpAddress, 6);
+            os_memmove((void *)(mainInfo[0] + 6), "~", 1);
+            os_memmove((void *)(mainInfo[0] + 6 + 1), tmpAddress + 40 - 4, 4);
+
+            //Message
+            SPRINTF(detailName[1], "%s", "Message");
+            lengthOfMessFeildIndex = 21+4+4+4+4+32+4+4+4+4+40+4+4;
+            lengthOfMessFeild = getUint32(reverseBytes(&raw_tx[lengthOfMessFeildIndex], 4));
+    PRINTF("lengthOfMessFeild: %d\n", lengthOfMessFeild);
+            msgSizeIndex = lengthOfMessFeild == 0 ? 0 : lengthOfMessFeildIndex+4+4;
+            msgSize = lengthOfMessFeild == 0 ? 0 : getUint32(reverseBytes(&raw_tx[msgSizeIndex], 4));
+
+            //mosaics
+            numberOfMosaicsIndex = lengthOfMessFeild == 0 ? lengthOfMessFeildIndex+4: lengthOfMessFeildIndex+4+4+4+msgSize;
+            numberOfMosaics = getUint32(reverseBytes(&raw_tx[numberOfMosaicsIndex], 4));
+            mosaicIndex = numberOfMosaicsIndex+4;
+    PRINTF("numberOfMosaics: %d\n", numberOfMosaics);
+            
+            //amount
+    PRINTF("amount: %d\n", getUint32(reverseBytes(&raw_tx[21+4+4+4+4+32+4+4+4+4+40], 4)));
+            SPRINTF(detailName[3], "%s", "Amount");
+            if (numberOfMosaics == 0) {
+                amountIndex = 21+4+4+4+4+32+4+4+4+4+40;
+                amount = getUint32(reverseBytes(&raw_tx[amountIndex], 4));
+                print_amount((uint64_t *)amount, 6, "xem", &mainInfo[3]);
+            } else {
+                SPRINTF(mainInfo[3], "<find %d mosaics>", numberOfMosaics);
                 
-                os_memmove((void *)addressSummary, tmpAddress, 6);
-                os_memmove((void *)(addressSummary + 6), "~", 1);
-                os_memmove((void *)(addressSummary + 6 + 1), tmpAddress + 40 - 4, 4);
+                //Show all mosaics on Ledger
+                for (arrayIndex = 0; arrayIndex < numberOfMosaics; arrayIndex++) {
+                    SPRINTF(detailName[4 + arrayIndex], "%s %d", "Mosaic", 1 + arrayIndex);
+                    //Namespace ID
+                    lengthOfIDIndex = mosaicIndex+4+4;
+                    lengthOfID = getUint32(reverseBytes(&raw_tx[lengthOfIDIndex], 4));
+                    IDNameIndex = mosaicIndex+4+4+4;
+                    mosaicIndex = IDNameIndex + lengthOfID;
+                    uint2Ascii(&raw_tx[IDNameIndex], lengthOfID, IDName);
+            PRINTF("lengthOfID: %d\n", lengthOfID);
+            PRINTF("mosaic name: %s\n", IDName);
 
+                    //Mosaic Name
+                    lengthOfNameIndex = mosaicIndex;
+                    lengthOfName = getUint32(reverseBytes(&raw_tx[lengthOfNameIndex], 4));
+            PRINTF("length of name: %d \n",lengthOfName);
+                    nameIndex = lengthOfNameIndex+4;
+                    mosaicIndex = nameIndex + lengthOfName;
+                    uint2Ascii(&raw_tx[nameIndex], lengthOfName, name);
+            PRINTF("mosaic name: %s\n", name);
 
-                //msgSize
-                uint16_t msgSize = getUint16(reverseBytes(&raw_tx[21+2+2+8+8+25], 2));
-
-                //msg payload
-                uint8_t msgType =  raw_tx[21+2+2+8+8+25+2+1];
-                if (msgType == 0){
-                    os_memset(msgPayload, 0, sizeof(msgPayload));                    
-                    char toCh[MAX_PRINT_MESSAGE_LENGTH + 1];
-                    //todo nonprintable ch
-                    if(msgSize > MAX_PRINT_MESSAGE_LENGTH) {
-                        uint2Ascii(&raw_tx[21+2+2+8+8+25+2+1+1], MAX_PRINT_MESSAGE_LENGTH, toCh);
-                        SPRINTF(msgPayload, "  %s...\0", toCh);
-                    }else{
-                        uint2Ascii(&raw_tx[21+2+2+8+8+25+2+1+1], msgSize-1, toCh);
-                        os_memmove(msgPayload, toCh, msgSize-1);
-                        msgPayload[msgSize] = "\0";
+                    //Quantity
+                    quantity = getUint32(reverseBytes(&raw_tx[mosaicIndex], 4));
+                    // print_amount((uint64_t *)quantity, 6, "xem", &mainInfo[3]);
+                    ux_step_count++;
+                    if ((compare_strings(IDName,"nem") == 0) && (compare_strings(name,"xem") == 0)) {
+                        print_amount((uint64_t *)quantity, 6, "xem", extraInfo[arrayIndex]);
+                    } else {
+                        if (string_length(name) < 13) {
+                            SPRINTF(extraInfo[arrayIndex], "%d %s", quantity, name);
+                        } else {
+                            SPRINTF(extraInfo[arrayIndex], "%d %s...", quantity, name);
+                        }
                     }
+                    mosaicIndex += 8;
+            PRINTF("OK Mosaic Quantity 1: %d \n\n", quantity);
+                    // print_amount((uint64_t *)quantity, 6, name, IDName);
+                    // volatile SPRINTF(mainInfo[1], "%s\0", toCh);
+                    // SPRINTF(mosaicShow, "%s.%s: %d\0", IDName, name, quantity);
+                }
+            }
+
+            //msg
+            msgTypeIndex = lengthOfMessFeildIndex+4;
+            msgIndex = lengthOfMessFeildIndex+4+4+4;
+            msgType = getUint32(reverseBytes(&raw_tx[msgTypeIndex], 4));
+            if (lengthOfMessFeild == 0) {
+                SPRINTF(mainInfo[1], "%s\0", "<empty msg>");
+            }
+            else if(msgType == 1) {
+                if(msgSize > MAX_PRINT_MESSAGE_LENGTH){
+                    uint2Ascii(&raw_tx[msgIndex], MAX_PRINT_MESSAGE_LENGTH, msg);
+                    SPRINTF(mainInfo[1], "  %s ...\0", msg);
                 }else{
-                    SPRINTF(msgPayload, "%s", "<encrypted msg>");
+                    uint2Ascii(&raw_tx[msgIndex], msgSize, msg);
+                    SPRINTF(mainInfo[1], "%s\0", msg);
                 }
+            } else {
+                SPRINTF(mainInfo[1], "%s\0", "<encrypted msg>");
+            }     
 
-                //mosaic
-                os_memset(fullAmount, 0, sizeof(fullAmount));
-                uint8_t numMosaic = raw_tx[21+2+2+8+8+25+2];
-                if(numMosaic > 1){
-                    SPRINTF(fullAmount, "<find %d mosaics>", numMosaic);
-                    break;
-                }
+            break; 
+        case NEMV1_MULTISIG_SIGNATURE:
+            // ux_step_count = 5;
+            ux_step_count = 2;
+            SPRINTF(txTypeName, "%s", "Mulisig signature");
 
-                uint32_t offset = 48;
-                offset += (uint32_t)msgSize;
+    PRINTF("address: %s\n", tmpAddress);
+            break;
+        case NEMV1_MULTISIG_TRANSACTION:
+            ux_step_count = 5;
+            SPRINTF(txTypeName, "%s", "Mulisig TX");
 
-                mosaicId = getUint64(reverseBytes(&raw_tx[21+offset], 8));
-                offset +=8;
+            //Address
+            uint2Ascii(&raw_tx[21+4+4+4+4+32+4+4+4+4], 40, tmpAddress);
+            os_memset(mainInfo[0], 0, sizeof(mainInfo[0]));                
+            os_memmove((void *)mainInfo[0], tmpAddress, 6);
+            os_memmove((void *)(mainInfo[0] + 6), "~", 1);
+            os_memmove((void *)(mainInfo[0] + 6 + 1), tmpAddress + 40 - 4, 4);
+            break;
+        case NEMV1_PROVISION_NAMESPACE:
+            ux_step_count = 6;
+            SPRINTF(txTypeName, "%s", "Namespace TX");
 
-                mosaicAmount = getUint64(reverseBytes(&raw_tx[21+offset], 8));
+            //Sink Address
+            SPRINTF(detailName[0], "%s", "Sink Address");
+            uint2Ascii(&raw_tx[21+4+4+4+4+32+4+4+4+4], 40, tmpAddress);
+        PRINTF("Address: %s\n", tmpAddress);
+            os_memset(mainInfo[0], 0, sizeof(mainInfo[0]));                
+            os_memmove((void *)mainInfo[0], tmpAddress, 6);
+            os_memmove((void *)(mainInfo[0] + 6), "~", 1);
+            os_memmove((void *)(mainInfo[0] + 6 + 1), tmpAddress + 40 - 4, 4);
 
-                uint8_t mosaicDivisibility;
-                switch(mosaicId){
-                    case 0x85bbea6cc462b244: //cat.currency
-                        mosaicDivisibility = 6;
-                        strcpy(txContent.mosaicName, "cat:currency");
-                        print_amount(mosaicAmount, mosaicDivisibility, &txContent.mosaicName, &fullAmount);
-                        break;
-                    case 0x941299b2b7e1291c:
-                        mosaicDivisibility = 3;
-                        strcpy(txContent.mosaicName, "cat:harvest");
-                        print_amount(mosaicAmount, mosaicDivisibility, &txContent.mosaicName, &fullAmount);
-                        break;
-                    default:
-                        strcpy(txContent.mosaicName, "<unknown Mosaic>");
-                        SPRINTF(fullAmount, "%s", "<unknown mosaic>");
-                }
-                break;
-            case REGISTER_NAMESPACE:
-            case NEMV1_PROVISION_NAMESPACE:
-                txContent.txType = REGISTER_NAMESPACE;
-                SPRINTF(txTypeName, "%s", "Namespace TX");
-                break;                
-            case MOSAIC_DEFINITION:
-            case NEMV1_MOSAIC_DEFINITION:
-                txContent.txType = MOSAIC_DEFINITION;
-                SPRINTF(txTypeName, "%s", "Create Mosaic");
-                break; 
-            case MOSAIC_SUPPLY_CHANGE:
-            case NEMV1_MOSAIC_SUPPLY_CHANGE:
-                txContent.txType = MOSAIC_SUPPLY_CHANGE;
-                SPRINTF(txTypeName, "%s", "Mosaic Supply ");
-                break;                     
-            default:
-                SPRINTF(txTypeName, "TX Type %d", txContent.txType);
-        }        
-    }else{ //NEM_MAINNET || NEM_TESTNET
-        //txType
-        uint32_t txType = getUint32(reverseBytes(&raw_tx[21], 4));
-        txContent.txType = (uint16_t *)txType;
+            //Rental Fee
+            SPRINTF(detailName[1], "%s", "Rental Fee");
+            quantityIndex = 21+4+4+4+4+32+4+4+4+4+40;
+            quantity = getUint32(reverseBytes(&raw_tx[quantityIndex], 4));
+            print_amount((uint64_t *)quantity, 6, "xem", mainInfo[1]);
 
-        uint32_t txVersion = getUint32(reverseBytes(&raw_tx[21+4], 4));
+            //Fee
+            //SPRINTF(detailName[2], "%s", "Network Fee");
 
-        //fee
-        uint32_t fee = getUint32(reverseBytes(&raw_tx[21+4+4+4+4+32], 4));
-        print_amount((uint64_t *)fee, 6, "xem", &maxFee);
+            //Namespace
+            SPRINTF(detailName[3], "%s", "Namespace");
+            msgSizeIndex = quantityIndex + 8;
+            msgSize = getUint32(reverseBytes(&raw_tx[msgSizeIndex], 4));
+            msgIndex = msgSizeIndex + 4;
+            uint2Ascii(&raw_tx[msgIndex], msgSize, msg);
+        PRINTF("Namespace: %s\n", msg);
+            SPRINTF(mainInfo[3], "%s", msg);
 
-        switch(txContent.txType){
-            case NEMV1_TRANSFER: //Transfer
-                ux_step_count = 5;
-                SPRINTF(txTypeName, "%s", "transfer tx");
+            //Parent namespace
+            SPRINTF(detailName[4], "%s", "Parent Name");
+            msgSizeIndex = msgIndex + msgSize;
+            msgSize = getUint32(reverseBytes(&raw_tx[msgSizeIndex], 4));
+            if (msgSize == -1) {
+                SPRINTF(extraInfo[0], "%s", "<New namespace>"); 
+            } else {
+                msgIndex = msgSizeIndex + 4;
+                uint2Ascii(&raw_tx[msgIndex], msgSize, msg);
+                SPRINTF(extraInfo[0], "%s", msg);
+            }
+            break;                
+        case NEMV1_MOSAIC_DEFINITION:
+            ux_step_count = 11;
+            SPRINTF(txTypeName, "%s", "Create Mosaic");
 
-                //Recipient Address
-                char tmpAddress[41];
-                uint2Ascii(&raw_tx[21+4+4+4+4+32+4+4+4+4], 40, tmpAddress);
-                os_memset(addressSummary, 0, sizeof(addressSummary));                
-                os_memmove((void *)addressSummary, tmpAddress, 6);
-                os_memmove((void *)(addressSummary + 6), "~", 1);
-                os_memmove((void *)(addressSummary + 6 + 1), tmpAddress + 40 - 4, 4);
+            //Namespace ID
+            SPRINTF(detailName[0], "%s", "Namespace");
+            lengthOfIDIndex = 21+16+32+16+32+4+4;
+            lengthOfID = getUint32(reverseBytes(&raw_tx[lengthOfIDIndex], 4));
+            IDNameIndex= lengthOfIDIndex+4;
+            uint2Ascii(&raw_tx[IDNameIndex], lengthOfID, IDName);
+            SPRINTF(mainInfo[0], "%s", IDName);
 
-                //msgSize
-                uint16_t msgSizeIndex = 21+4+4+4+4+32+4+4+4+4+40+4+4+4+4;
-                uint32_t msgSize = getUint32(reverseBytes(&raw_tx[msgSizeIndex], 4));
+            //Mosaic Name
+            SPRINTF(detailName[1], "%s", "Mosaic Name");
+            lengthOfNameIndex = IDNameIndex + lengthOfID;
+            lengthOfName = getUint32(reverseBytes(&raw_tx[lengthOfNameIndex], 4));
+            nameIndex = lengthOfNameIndex+4;
+            uint2Ascii(&raw_tx[nameIndex], lengthOfName, name);
+            SPRINTF(mainInfo[1], "%s", name);
+
+            //Description
+            SPRINTF(detailName[4], "%s", "Description");
+            msgSizeIndex = nameIndex+lengthOfName;
+            msgSize = getUint32(reverseBytes(&raw_tx[msgSizeIndex], 4));
+            msgIndex = msgSizeIndex+4;
+            if(msgSize > MAX_PRINT_MESSAGE_LENGTH){
+                uint2Ascii(&raw_tx[msgIndex], MAX_PRINT_MESSAGE_LENGTH, msg);
+                SPRINTF(extraInfo[0], "%s...\0", msg);
+            } else {
+                uint2Ascii(&raw_tx[msgIndex], msgSize, msg);
+                SPRINTF(extraInfo[0], "%s\0", msg);
+            }
+
+            //Start Properties
+            //divisibility
+            SPRINTF(detailName[6], "%s", "Divisibility");
+            msgIndex = msgIndex + msgSize + 4+4+4+12+4;
+            uint2Ascii(&raw_tx[msgIndex], 1, msg);
+            SPRINTF(extraInfo[2], "%s", msg);
+
+            //initial Supply
+            SPRINTF(detailName[5], "%s", "Initial Supply");
+            msgSizeIndex = msgIndex+1 + 4+4+13;
+            msgSize = getUint32(reverseBytes(&raw_tx[msgSizeIndex], 4));
+            msgIndex = msgSizeIndex + 4;
+            uint2Ascii(&raw_tx[msgIndex], msgSize, msg);
+            SPRINTF(extraInfo[1], "%s", msg);
+
+            //Transferable
+            SPRINTF(detailName[7], "%s", "Mutable Supply");
+            msgSizeIndex = msgIndex+msgSize + 4+4+13;
+            msgSize = getUint32(reverseBytes(&raw_tx[msgSizeIndex], 4));
+            msgIndex = msgSizeIndex + 4;
+            uint2Ascii(&raw_tx[msgIndex], msgSize, msg);
+            SPRINTF(extraInfo[3], "%s", compare_strings(msg, "true") == 0 ? "Yes" : "No");
+
+            //Mutable Supply
+            SPRINTF(detailName[8], "%s", "Transferable");
+            msgSizeIndex = msgIndex+msgSize + 4+4+12;
+            msgSize = getUint32(reverseBytes(&raw_tx[msgSizeIndex], 4));
+            msgIndex = msgSizeIndex + 4;
+            uint2Ascii(&raw_tx[msgIndex], msgSize, msg);
+            SPRINTF(extraInfo[4], "%s", compare_strings(msg, "true") == 0 ? "Yes" : "No");
+
+            //Requires Levy
+            SPRINTF(detailName[9], "%s", "Requires Levy");
+            msgSizeIndex = msgIndex+msgSize;
+            msgSize = getUint32(reverseBytes(&raw_tx[msgSizeIndex], 4));
+            SPRINTF(extraInfo[5], "%s", msgSize == 0 ? "No" : "Yes");
+
+            //Rental Fee
+            SPRINTF(detailName[3], "%s", "Rental Fee");
+            quantityIndex = msgSizeIndex+msgSize + 4+4+40;
+            quantity = getUint32(reverseBytes(&raw_tx[quantityIndex], 4));
+            print_amount((uint64_t *)quantity, 6, "xem",mainInfo[3]);
+
+            //End Properties
                 
-                //amount
-                uint16_t amountIndex;
-                if(txVersion == MAIN_NETWORK_VERSION || txVersion == TEST_NETWORK_VERSION){
-                    amountIndex = 21+4+4+4+4+32+4+4+4+4+40;
-                    uint32_t amount = getUint32(reverseBytes(&raw_tx[amountIndex], 4));
-                    print_amount((uint64_t *)amount, 6, "xem", &fullAmount);
-                }else{
-                    amountIndex = 21+4+4+4+4+32+4+4+4+4+40+4+4+4+4+4+msgSize;
-                    uint32_t numMosaic = getUint32(reverseBytes(&raw_tx[amountIndex], 4));
-                    SPRINTF(fullAmount, "<find %d mosaics>", numMosaic);
-                }
+            break; 
+        case NEMV1_MOSAIC_SUPPLY_CHANGE:
+            ux_step_count = 5;
+            SPRINTF(txTypeName, "%s", "Mosaic Supply");
 
-                //msg
-                uint16_t msgTypeIndex = 21+4+4+4+4+32+4+4+4+4+40+4+4+4;
-                uint16_t msgIndex = 21+4+4+4+4+32+4+4+4+4+40+4+4+4+4+4;
-                uint32_t msgType = getUint32(reverseBytes(&raw_tx[msgTypeIndex], 4));
-                if(msgType == 1) {
-                    char toCh[MAX_PRINT_MESSAGE_LENGTH + 1];
-                    if(msgSize > MAX_PRINT_MESSAGE_LENGTH){
-                        uint2Ascii(&raw_tx[msgIndex], MAX_PRINT_MESSAGE_LENGTH, toCh);
-                        SPRINTF(msgPayload, "  %s ...\0", toCh);
-                    }else{
-                        uint2Ascii(&raw_tx[msgIndex], msgSize, toCh);
-                        SPRINTF(msgPayload, "%s\0", toCh);
-                    }
-                }else{
-                    SPRINTF(msgPayload, "%s\0", "<encrypted msg>");
-                }     
+            //Namespace ID
+            SPRINTF(detailName[0], "%s", "Namespace");
+            lengthOfIDIndex = 21+16+32+12+4;
+            lengthOfID = getUint32(reverseBytes(&raw_tx[lengthOfIDIndex], 4));
+            IDNameIndex= lengthOfIDIndex+4;
+            uint2Ascii(&raw_tx[IDNameIndex], lengthOfID, IDName);
+            SPRINTF(mainInfo[0], "%s", IDName);
+        PRINTF("length of ID name: %d \n",lengthOfID);
+        PRINTF("ID name: %s\n", IDName);
 
-                break; 
-            case NEMV1_MULTISIG_SIGNATURE:
-                SPRINTF(txTypeName, "%s", "Mulisig signature");
-                break;
-            case NEMV1_MULTISIG_TRANSACTION:
-                SPRINTF(txTypeName, "%s", "Mulisig TX");
-                break;
-            case REGISTER_NAMESPACE:
-            case NEMV1_PROVISION_NAMESPACE:
-                SPRINTF(txTypeName, "%s", "Namespace TX");
-                break;                
-            case MOSAIC_DEFINITION:
-            case NEMV1_MOSAIC_DEFINITION:
-                SPRINTF(txTypeName, "%s", "Create Mosaic");
-                break; 
-            case MOSAIC_SUPPLY_CHANGE:
-            case NEMV1_MOSAIC_SUPPLY_CHANGE:
-                SPRINTF(txTypeName, "%s", "Mosaic Supply ");
-                break;         
-            default:
-                SPRINTF(txTypeName, "tx type %d", txContent.txType);     
-        }   
-    }
+            //Mosaic Name
+            SPRINTF(detailName[1], "%s", "Mosaic Name");
+            lengthOfNameIndex = IDNameIndex + lengthOfID;
+            lengthOfName = getUint32(reverseBytes(&raw_tx[lengthOfNameIndex], 4));
+        PRINTF("length of name: %d \n",lengthOfName);
+            nameIndex = lengthOfNameIndex+4;
+            uint2Ascii(&raw_tx[nameIndex], lengthOfName, name);
+            SPRINTF(mainInfo[1], "%s", name);
+        PRINTF("name: %s \n",name);
+
+            //Supply type
+            supplyType = getUint32(reverseBytes(&raw_tx[nameIndex+lengthOfName], 4));
+            quantity = getUint32(reverseBytes(&raw_tx[nameIndex+lengthOfName+4], 4));
+            if (supplyType == 0x01) {   //Increase supply
+                SPRINTF(detailName[3], "%s", "Increase");
+            } else { //Decrease supply 
+                SPRINTF(detailName[3], "%s", "Decrease");
+            }
+            SPRINTF(mainInfo[3], "%d", quantity);
+
+            break;         
+        default:
+            SPRINTF(txTypeName, "tx type %d", txContent.txType);     
+    }   
 
 #if defined(TARGET_NANOS)
     ux_step = 0;
@@ -1024,6 +1187,8 @@ void nem_main(void) {
                     hashTainted = 1;
                     THROW(0x6982);
                 }
+
+                //PRINTF("New APDU received:\n%.*H\n", rx, G_io_apdu_buffer);
 
                 // if the buffer doesn't start with the magic byte, return an error.
                 if (G_io_apdu_buffer[OFFSET_CLA] != CLA) {
