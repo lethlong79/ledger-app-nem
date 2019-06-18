@@ -17,6 +17,8 @@
 
 #include "os.h"
 #include "cx.h"
+#include "os_io_seproxyhal.h"
+#include <stdbool.h>
 #define MAX_BIP32_PATH 5
 
 #define MAX_PRINT_MESSAGE_LENGTH 16
@@ -107,6 +109,63 @@ unsigned int get_apdu_buffer_length();
 /** Clean the buffer of tx. */
 void clean_raw_tx(unsigned char *raw_tx);
 
-int compare_strings(char a[], char b[]);
+int compare_strings(char str1[], char str2[]);
 
-int string_length(char s[]);
+int string_length(char str[]);
+
+/** Convert 1 hex number to 2 characters */
+char hex2Ascii(uint8_t input);
+
+void parse_transfer_tx (unsigned char raw_tx[],
+    unsigned int* ux_step_count, 
+    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
+    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH],
+    bool isMultisig
+);
+
+void parse_mosaic_definition_tx (unsigned char raw_tx[],
+    unsigned int* ux_step_count, 
+    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
+    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH],
+    bool isMultisig
+);
+
+void parse_mosaic_supply_change_tx (unsigned char raw_tx[],
+    unsigned int* ux_step_count, 
+    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
+    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH],
+    bool isMultisig
+);
+
+void parse_provision_namespace_tx (unsigned char raw_tx[],
+    unsigned int* ux_step_count, 
+    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
+    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH],
+    bool isMultisig
+);
+
+void parse_aggregate_modification_tx (unsigned char raw_tx[],
+    unsigned int* ux_step_count,
+    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
+    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH],
+    bool isMultisig
+);
+
+void parse_multisig_tx (unsigned char raw_tx[],
+    unsigned int* ux_step_count, 
+    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
+    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH]
+);
+
+void parse_multisig_signature_tx (unsigned char raw_tx[],
+    unsigned int* ux_step_count,
+    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
+    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH]
+);
