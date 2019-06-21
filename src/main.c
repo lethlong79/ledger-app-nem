@@ -102,10 +102,9 @@ volatile char txTypeName[30];
 volatile char fullAddress[40];
 
 //Registers save information to show on the top line of screen
-volatile char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH];
+volatile char detailName[MAX_PRINT_SCREEN][MAX_PRINT_DETAIL_NAME_LENGTH];
 //Registers save information to show on the bottom line of screen
-volatile char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH];
-volatile char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH];
+volatile char extraInfo[MAX_PRINT_SCREEN][MAX_PRINT_EXTRA_INFOR_LENGTH];
 
 bagl_element_t tmp_element;
 
@@ -275,18 +274,18 @@ unsigned int ui_address_nanos_button(unsigned int button_mask,
 
 #if defined(TARGET_NANOS)
 const char * const ui_approval_details[][2] = {
-    {detailName[0], mainInfo[0]},
-    {detailName[1], mainInfo[1]},
-    {detailName[2], mainInfo[2]},
-    {detailName[3], mainInfo[3]},
-    {detailName[4], extraInfo[0]},
-    {detailName[5], extraInfo[1]},
-    {detailName[6], extraInfo[2]},
-    {detailName[7], extraInfo[3]},
-    {detailName[8], extraInfo[4]},
-    {detailName[9], extraInfo[5]},
-    {detailName[10], extraInfo[6]},
-    {detailName[11], extraInfo[7]},
+    {detailName[0], extraInfo[0]},
+    {detailName[1], extraInfo[1]},
+    {detailName[2], extraInfo[2]},
+    {detailName[3], extraInfo[3]},
+    {detailName[4], extraInfo[4]},
+    {detailName[5], extraInfo[5]},
+    {detailName[6], extraInfo[6]},
+    {detailName[7], extraInfo[7]},
+    {detailName[8], extraInfo[8]},
+    {detailName[9], extraInfo[9]},
+    {detailName[10], extraInfo[10]},
+    // {detailName[11], extraInfo[11]},
 };
 
 const bagl_element_t ui_approval_nanos[] = {
@@ -385,7 +384,6 @@ unsigned int ui_approval_prepro(const bagl_element_t *element) {
     if (element->component.userid > 0) {
         // display the meta element when at least bigger
         display = (ux_step == element->component.userid - 1) || (element->component.userid >= 0x02 && ux_step >= 1);
-    // PRINTF("check ux_step trong ui_approval_prepro: %d\n", ux_step);
         if (display) {
             switch (element->component.userid) {
             case 0x01:                           
@@ -454,7 +452,6 @@ unsigned int io_seproxyhal_touch_address_ok(const bagl_element_t *e) {
     uint32_t tx = set_result_get_publicKey();
     G_io_apdu_buffer[tx++] = 0x90;
     G_io_apdu_buffer[tx++] = 0x00;
-    PRINTF("Size %d\n", IO_APDU_BUFFER_SIZE);
     // Send back the response, do not restart the event loop
     io_exchange(CHANNEL_APDU | IO_RETURN_AFTER_TX, tx);
     // Display back the original UX
@@ -639,7 +636,6 @@ void handleGetPublicKey(uint8_t p1, uint8_t p2, uint8_t *dataBuffer,
 
     //bip32PathLength shold be 5
     if (bip32PathLength != MAX_BIP32_PATH) {
-        PRINTF("BIP32_PATH_INVALID\n");
         THROW(0x6a80);
     }
 
@@ -683,7 +679,7 @@ void handleGetPublicKey(uint8_t p1, uint8_t p2, uint8_t *dataBuffer,
     cx_ecfp_generate_pair2(CX_CURVE_Ed25519, &tmpCtx.publicKeyContext.publicKey, &privateKey, 1, tmpCtx.publicKeyContext.algo);
 
     os_memset(privateKeyData, 0, sizeof(privateKeyData));
-    os_memset(&privateKey, 0, sizeof(privateKey));   
+    os_memset(&privateKey, 0, sizeof(privateKey));
 
     to_nem_public_key_and_address(
                                   &tmpCtx.publicKeyContext.publicKey, 
@@ -725,7 +721,6 @@ void display_tx(uint8_t *raw_tx, uint16_t dataLength,
 
     tmpCtx.transactionContext.pathLength = raw_tx[0];
     if (tmpCtx.transactionContext.pathLength != MAX_BIP32_PATH) {
-        PRINTF("BIP32_PATH_Invalid\n");
         THROW(0x6a80);
     }
 
@@ -749,7 +744,6 @@ void display_tx(uint8_t *raw_tx, uint16_t dataLength,
     //txType
     uint32_t txType = getUint32(reverseBytes(&raw_tx[21], 4));
     txContent.txType = (uint16_t *)txType;
-    PRINTF("Type: %x\n", txContent.txType);
 
     uint32_t txVersion = getUint32(reverseBytes(&raw_tx[21+4], 4));
 
@@ -763,7 +757,6 @@ void display_tx(uint8_t *raw_tx, uint16_t dataLength,
             parse_transfer_tx (raw_tx + disIndex,
                 &ux_step_count, 
                 detailName,
-                mainInfo,
                 extraInfo,
                 false
             ); 
@@ -774,7 +767,6 @@ void display_tx(uint8_t *raw_tx, uint16_t dataLength,
             parse_multisig_signature_tx (raw_tx + disIndex,
                 &ux_step_count, 
                 detailName,
-                mainInfo,
                 extraInfo
             );
             break;
@@ -784,8 +776,8 @@ void display_tx(uint8_t *raw_tx, uint16_t dataLength,
             parse_multisig_tx (raw_tx + disIndex,
                 &ux_step_count, 
                 detailName,
-                mainInfo,
-                extraInfo
+                extraInfo,
+                tmpCtx.transactionContext.networkId
             );
             break;
         case NEMV1_PROVISION_NAMESPACE:
@@ -794,7 +786,6 @@ void display_tx(uint8_t *raw_tx, uint16_t dataLength,
             parse_provision_namespace_tx (raw_tx + disIndex,
                 &ux_step_count, 
                 detailName,
-                mainInfo,
                 extraInfo,
                 false
             );
@@ -805,7 +796,6 @@ void display_tx(uint8_t *raw_tx, uint16_t dataLength,
             parse_mosaic_definition_tx (raw_tx + disIndex,
                 &ux_step_count, 
                 detailName,
-                mainInfo,
                 extraInfo,
                 false
             );
@@ -816,7 +806,6 @@ void display_tx(uint8_t *raw_tx, uint16_t dataLength,
             parse_mosaic_supply_change_tx (raw_tx + disIndex,
                 &ux_step_count, 
                 detailName,
-                mainInfo,
                 extraInfo,
                 false
             );
@@ -928,8 +917,6 @@ void nem_main(void) {
                     hashTainted = 1;
                     THROW(0x6982);
                 }
-
-                PRINTF("New APDU received:\n%.*H\n", rx, G_io_apdu_buffer);
 
                 // if the buffer doesn't start with the magic byte, return an error.
                 if (G_io_apdu_buffer[OFFSET_CLA] != CLA) {

@@ -21,10 +21,10 @@
 #include <stdbool.h>
 #define MAX_BIP32_PATH 5
 
-#define MAX_PRINT_MESSAGE_LENGTH 16
-#define MAX_PRINT_MAIN_INFOR_LENGTH 40
-#define MAX_PRINT_EXTRA_INFOR_LENGTH 16
+#define MAX_PRINT_MESSAGE_LENGTH 11
 #define MAX_PRINT_DETAIL_NAME_LENGTH 15
+#define MAX_PRINT_EXTRA_INFOR_LENGTH 17
+#define MAX_PRINT_SCREEN 11
 //#define MAX_UX_CALLBACK_INTERVAL 2
 
 static const int MAX_UX_CALLBACK_INTERVAL = 2;
@@ -43,22 +43,6 @@ static const int32_t MINJIN_NETWORK_VERSION = 0x60000001;
 //rootNamespaceRentalFeePerBlock = 1'000'000
 //childNamespaceRentalFee = 1'000'000
 
-static const uint16_t TRANSFER = 0x4154;
-static const uint16_t REGISTER_NAMESPACE = 0x414E;
-static const uint16_t ADDRESS_ALIAS = 0x424E;
-static const uint16_t MOSAIC_ALIAS = 0x434E;
-static const uint16_t MOSAIC_DEFINITION = 0x414D;
-static const uint16_t MOSAIC_SUPPLY_CHANGE = 0x424D;
-static const uint16_t MODIFY_MULTISIG_ACCOUNT = 0x4155;
-static const uint16_t AGGREGATE_COMPLETE = 0x4141;
-static const uint16_t AGGREGATE_BONDED = 0x4241;
-static const uint16_t LOCK = 0x4148;
-static const uint16_t SECRET_LOCK = 0x4152;
-static const uint16_t SECRET_PROOF = 0x4252;
-static const uint16_t MODIFY_ACCOUNT_PROPERTY_ADDRESS = 0x4150;
-static const uint16_t MODIFY_ACCOUNT_PROPERTY_MOSAIC = 0x4250;
-static const uint16_t MODIFY_ACCOUNT_PROPERTY_ENTITY_TYPE = 0x4350;
-
 static const uint16_t NEMV1_TRANSFER = 0x101;
 static const uint16_t NEMV1_IMPORTANCE_TRANSFER = 0x801;
 static const uint16_t NEMV1_MULTISIG_MODIFICATION = 0x1001;
@@ -72,10 +56,11 @@ static const uint16_t NEMV1_MOSAIC_SUPPLY = 0x4002;
 /**
  * Nano S has 320 KB flash, 10 KB RAM, uses a ST31H320 chip.
  * This effectively limits the max size
- * So we can only sign transactions up to 512Bytes in size.
- * max size of a transaction, binary will not compile if we try to allow transactions over 512Bytes.
+ * So we can only sign transactions up to 490Bytes in size.
+ * max size of a transaction, binary will not compile if we try to allow transactions over 490Bytes.
  */
-static const uint16_t MAX_TX_RAW_LENGTH = 512;
+// static const uint16_t MAX_TX_RAW_LENGTH = 512;
+static const uint16_t MAX_TX_RAW_LENGTH = 490;
 
 /** length of the APDU (application protocol data unit) header. */
 static const uint8_t APDU_HEADER_LENGTH = 5;
@@ -102,6 +87,7 @@ uint16_t getUint16(uint8_t *buffer);
 uint32_t getUint32(uint8_t *data);
 uint64_t getUint64(uint8_t *data);
 void to_nem_public_key_and_address(cx_ecfp_public_key_t *inPublicKey, uint8_t inNetworkId, unsigned int inAlgo, uint8_t *outNemPublicKey, unsigned char *outNemAddress);
+void public_key_to_address(uint8_t inNetworkId, uint8_t *outNemPublicKey, unsigned char *outNemAddress);
 
 /** returns the length of the transaction in the buffer. */
 unsigned int get_apdu_buffer_length();
@@ -118,54 +104,49 @@ char hex2Ascii(uint8_t input);
 
 void parse_transfer_tx (unsigned char raw_tx[],
     unsigned int* ux_step_count, 
-    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
-    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
-    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH],
+    char detailName[MAX_PRINT_SCREEN][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char extraInfo[MAX_PRINT_SCREEN][MAX_PRINT_EXTRA_INFOR_LENGTH],
     bool isMultisig
 );
 
 void parse_mosaic_definition_tx (unsigned char raw_tx[],
     unsigned int* ux_step_count, 
-    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
-    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
-    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH],
+    char detailName[MAX_PRINT_SCREEN][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char extraInfo[MAX_PRINT_SCREEN][MAX_PRINT_EXTRA_INFOR_LENGTH],
     bool isMultisig
 );
 
 void parse_mosaic_supply_change_tx (unsigned char raw_tx[],
     unsigned int* ux_step_count, 
-    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
-    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
-    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH],
+    char detailName[MAX_PRINT_SCREEN][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char extraInfo[MAX_PRINT_SCREEN][MAX_PRINT_EXTRA_INFOR_LENGTH],
     bool isMultisig
 );
 
 void parse_provision_namespace_tx (unsigned char raw_tx[],
     unsigned int* ux_step_count, 
-    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
-    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
-    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH],
+    char detailName[MAX_PRINT_SCREEN][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char extraInfo[MAX_PRINT_SCREEN][MAX_PRINT_EXTRA_INFOR_LENGTH],
     bool isMultisig
 );
 
 void parse_aggregate_modification_tx (unsigned char raw_tx[],
     unsigned int* ux_step_count,
-    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
-    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
-    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH],
-    bool isMultisig
+    char detailName[MAX_PRINT_SCREEN][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char extraInfo[MAX_PRINT_SCREEN][MAX_PRINT_EXTRA_INFOR_LENGTH],
+    bool isMultisig,
+    uint8_t networkId
 );
 
 void parse_multisig_tx (unsigned char raw_tx[],
     unsigned int* ux_step_count, 
-    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
-    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
-    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH]
+    char detailName[MAX_PRINT_SCREEN][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char extraInfo[MAX_PRINT_SCREEN][MAX_PRINT_EXTRA_INFOR_LENGTH],
+    uint8_t networkId
 );
 
 void parse_multisig_signature_tx (unsigned char raw_tx[],
     unsigned int* ux_step_count,
-    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
-    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
-    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH]
+    char detailName[MAX_PRINT_SCREEN][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char extraInfo[MAX_PRINT_SCREEN][MAX_PRINT_EXTRA_INFOR_LENGTH]
 );

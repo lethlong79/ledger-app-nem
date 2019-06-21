@@ -169,6 +169,32 @@ void to_nem_public_key_and_address(cx_ecfp_public_key_t *inPublicKey, uint8_t in
     base32_encode(rawAddress, sizeof(rawAddress), outNemAddress, 40);
 }
 
+void public_key_to_address(uint8_t inNetworkId, uint8_t *inNemPublicKey, unsigned char *outNemAddress) {
+    cx_sha3_t hash1;
+    cx_sha3_t temphash;
+    cx_keccak_init(&hash1, 256);
+    cx_keccak_init(&temphash, 256);
+
+    unsigned char buffer1[32];
+    cx_hash(&hash1.header, CX_LAST, inNemPublicKey, 32, buffer1);
+    unsigned char buffer2[20];
+    cx_ripemd160_t hash2;
+    cx_ripemd160_init(&hash2);
+    cx_hash(&hash2.header, CX_LAST, buffer1, 32, buffer2);
+    unsigned char rawAddress[50];
+    //step1: add network prefix char
+    rawAddress[0] = inNetworkId;   //104,,,,,
+    //step2: add ripemd160 hash
+    os_memmove(rawAddress + 1, buffer2, sizeof(buffer2));
+    
+    unsigned char buffer3[32];
+    cx_hash(&temphash.header, CX_LAST, rawAddress, 21, buffer3);
+    //step3: add checksum
+    os_memmove(rawAddress + 21, buffer3, 4);
+    base32_encode(rawAddress, sizeof(rawAddress), outNemAddress, 40);
+}
+
+
 unsigned int get_apdu_buffer_length() {
 	unsigned int len0 = G_io_apdu_buffer[APDU_BODY_LENGTH_OFFSET];
 	return len0;
@@ -213,9 +239,8 @@ char hex2Ascii(uint8_t input){
 
 void parse_transfer_tx (unsigned char raw_tx[],
     unsigned int* ux_step_count, 
-    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
-    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
-    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH],
+    char detailName[MAX_PRINT_SCREEN][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char extraInfo[MAX_PRINT_SCREEN][MAX_PRINT_EXTRA_INFOR_LENGTH],
     bool isMultisig) {
     
     //Fee
@@ -270,10 +295,10 @@ void parse_transfer_tx (unsigned char raw_tx[],
     //Address
     SPRINTF(detailName[0], "%s", "Recipient");
     uint2Ascii(&raw_tx[4+4+4+4+32+4+4+4+4], 40, tmpAddress);
-    os_memset(mainInfo[0], 0, sizeof(mainInfo[0]));                
-    os_memmove((void *)mainInfo[0], tmpAddress, 6);
-    os_memmove((void *)(mainInfo[0] + 6), "~", 1);
-    os_memmove((void *)(mainInfo[0] + 6 + 1), tmpAddress + 40 - 4, 4);
+    os_memset(extraInfo[0], 0, sizeof(extraInfo[0]));                
+    os_memmove((void *)extraInfo[0], tmpAddress, 6);
+    os_memmove((void *)(extraInfo[0] + 6), "~", 1);
+    os_memmove((void *)(extraInfo[0] + 6 + 1), tmpAddress + 40 - 4, 4);
 
     //Message
     SPRINTF(detailName[1], "%s", "Message");
@@ -288,7 +313,7 @@ void parse_transfer_tx (unsigned char raw_tx[],
     if (isMultisig) {
         fee += 150000;
     }
-    print_amount((uint64_t *)fee, 6, "xem", &mainInfo[2]);
+    print_amount((uint64_t *)fee, 6, "xem", &extraInfo[2]);
 
     //mosaics
     numberOfMosaicsIndex = lengthOfMessFeild == 0 ? lengthOfMessFeildIndex+4: lengthOfMessFeildIndex+4+4+4+msgSize;
@@ -300,13 +325,12 @@ void parse_transfer_tx (unsigned char raw_tx[],
     if (numberOfMosaics == 0) {
         amountIndex = 4+4+4+4+32+4+4+4+4+40;
         amount = getUint32(reverseBytes(&raw_tx[amountIndex], 4));
-        print_amount((uint64_t *)amount, 6, "xem", &mainInfo[3]);
+        print_amount((uint64_t *)amount, 6, "xem", &extraInfo[3]);
     } else {
-        SPRINTF(mainInfo[3], "<find %d mosaics>", numberOfMosaics);
+        SPRINTF(extraInfo[3], "<find %d mosaics>", numberOfMosaics);
         
         //Show all mosaics on Ledger
         for (arrayIndex = 0; arrayIndex < numberOfMosaics; arrayIndex++) {
-            SPRINTF(detailName[4 + arrayIndex], "%s %d", "Mosaic", 1 + arrayIndex);
             //Namespace ID
             lengthOfIDIndex = mosaicIndex+4+4;
             lengthOfID = getUint32(reverseBytes(&raw_tx[lengthOfIDIndex], 4));
@@ -323,15 +347,16 @@ void parse_transfer_tx (unsigned char raw_tx[],
 
             //Quantity
             quantity = getUint32(reverseBytes(&raw_tx[mosaicIndex], 4));
-            // print_amount((uint64_t *)quantity, 6, "xem", &mainInfo[3]);
             *ux_step_count = *ux_step_count + 1;
             if ((compare_strings(IDName,"nem") == 0) && (compare_strings(name,"xem") == 0)) {
-                print_amount((uint64_t *)quantity, 6, "xem", extraInfo[arrayIndex]);
+                SPRINTF(detailName[4 + arrayIndex], "%s %d", "Amount", 1 + arrayIndex);
+                print_amount((uint64_t *)quantity, 6, "xem", extraInfo[4 + arrayIndex]);
             } else {
+                SPRINTF(detailName[4 + arrayIndex], "%s %d", "Raw units", 1 + arrayIndex);
                 if (string_length(name) < 13) {
-                    SPRINTF(extraInfo[arrayIndex], "%d %s", quantity, name);
+                    SPRINTF(extraInfo[4 + arrayIndex], "%d %s", quantity, name);
                 } else {
-                    SPRINTF(extraInfo[arrayIndex], "%d %s...", quantity, name);
+                    SPRINTF(extraInfo[4 + arrayIndex], "%d %s...", quantity, name);
                 }
             }
             mosaicIndex += 8;
@@ -343,26 +368,25 @@ void parse_transfer_tx (unsigned char raw_tx[],
     msgIndex = lengthOfMessFeildIndex+4+4+4;
     msgType = getUint32(reverseBytes(&raw_tx[msgTypeIndex], 4));
     if (lengthOfMessFeild == 0) {
-        SPRINTF(mainInfo[1], "%s\0", "<empty msg>");
+        SPRINTF(extraInfo[1], "%s\0", "<empty msg>");
     }
     else if(msgType == 1) {
         if(msgSize > MAX_PRINT_MESSAGE_LENGTH){
             uint2Ascii(&raw_tx[msgIndex], MAX_PRINT_MESSAGE_LENGTH, msg);
-            SPRINTF(mainInfo[1], "  %s ...\0", msg);
+            SPRINTF(extraInfo[1], "%s ...\0", msg);
         }else{
             uint2Ascii(&raw_tx[msgIndex], msgSize, msg);
-            SPRINTF(mainInfo[1], "%s\0", msg);
+            SPRINTF(extraInfo[1], "%s\0", msg);
         }
     } else {
-        SPRINTF(mainInfo[1], "%s\0", "<encrypted msg>");
+        SPRINTF(extraInfo[1], "%s\0", "<encrypted msg>");
     }
 }
 
 void parse_mosaic_definition_tx (unsigned char raw_tx[],
     unsigned int* ux_step_count, 
-    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
-    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
-    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH],
+    char detailName[MAX_PRINT_SCREEN][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char extraInfo[MAX_PRINT_SCREEN][MAX_PRINT_EXTRA_INFOR_LENGTH],
     bool isMultisig) {
 
     //Fee
@@ -403,7 +427,7 @@ void parse_mosaic_definition_tx (unsigned char raw_tx[],
     lengthOfID = getUint32(reverseBytes(&raw_tx[lengthOfIDIndex], 4));
     IDNameIndex= lengthOfIDIndex+4;
     uint2Ascii(&raw_tx[IDNameIndex], lengthOfID, IDName);
-    SPRINTF(mainInfo[0], "%s", IDName);
+    SPRINTF(extraInfo[0], "%s", IDName);
 
     //Mosaic Name
     SPRINTF(detailName[1], "%s", "Mosaic Name");
@@ -411,7 +435,7 @@ void parse_mosaic_definition_tx (unsigned char raw_tx[],
     lengthOfName = getUint32(reverseBytes(&raw_tx[lengthOfNameIndex], 4));
     nameIndex = lengthOfNameIndex+4;
     uint2Ascii(&raw_tx[nameIndex], lengthOfName, name);
-    SPRINTF(mainInfo[1], "%s", name);
+    SPRINTF(extraInfo[1], "%s", name);
 
     //Fee
     SPRINTF(detailName[2], "%s", "Fee");
@@ -419,7 +443,7 @@ void parse_mosaic_definition_tx (unsigned char raw_tx[],
     if (isMultisig) {
         fee += 150000;
     }
-    print_amount((uint64_t *)fee, 6, "xem", &mainInfo[2]);
+    print_amount((uint64_t *)fee, 6, "xem", &extraInfo[2]);
     
     //Description
     SPRINTF(detailName[4], "%s", "Description");
@@ -428,10 +452,10 @@ void parse_mosaic_definition_tx (unsigned char raw_tx[],
     msgIndex = msgSizeIndex+4;
     if(msgSize > MAX_PRINT_MESSAGE_LENGTH){
         uint2Ascii(&raw_tx[msgIndex], MAX_PRINT_MESSAGE_LENGTH, msg);
-        SPRINTF(extraInfo[0], "%s...\0", msg);
+        SPRINTF(extraInfo[4], "%s...\0", msg);
     } else {
         uint2Ascii(&raw_tx[msgIndex], msgSize, msg);
-        SPRINTF(extraInfo[0], "%s\0", msg);
+        SPRINTF(extraInfo[4], "%s\0", msg);
     }
 
     //Start Properties
@@ -439,7 +463,7 @@ void parse_mosaic_definition_tx (unsigned char raw_tx[],
     SPRINTF(detailName[6], "%s", "Divisibility");
     msgIndex = msgIndex + msgSize + 4+4+4+12+4;
     uint2Ascii(&raw_tx[msgIndex], 1, msg);
-    SPRINTF(extraInfo[2], "%s", msg);
+    SPRINTF(extraInfo[6], "%s", msg);
 
     //initial Supply
     SPRINTF(detailName[5], "%s", "Initial Supply");
@@ -447,7 +471,7 @@ void parse_mosaic_definition_tx (unsigned char raw_tx[],
     msgSize = getUint32(reverseBytes(&raw_tx[msgSizeIndex], 4));
     msgIndex = msgSizeIndex + 4;
     uint2Ascii(&raw_tx[msgIndex], msgSize, msg);
-    SPRINTF(extraInfo[1], "%s", msg);
+    SPRINTF(extraInfo[5], "%s", msg);
 
     //Transferable
     SPRINTF(detailName[7], "%s", "Mutable Supply");
@@ -455,7 +479,7 @@ void parse_mosaic_definition_tx (unsigned char raw_tx[],
     msgSize = getUint32(reverseBytes(&raw_tx[msgSizeIndex], 4));
     msgIndex = msgSizeIndex + 4;
     uint2Ascii(&raw_tx[msgIndex], msgSize, msg);
-    SPRINTF(extraInfo[3], "%s", compare_strings(msg, "true") == 0 ? "Yes" : "No");
+    SPRINTF(extraInfo[7], "%s", compare_strings(msg, "true") == 0 ? "Yes" : "No");
 
     //Mutable Supply
     SPRINTF(detailName[8], "%s", "Transferable");
@@ -463,32 +487,26 @@ void parse_mosaic_definition_tx (unsigned char raw_tx[],
     msgSize = getUint32(reverseBytes(&raw_tx[msgSizeIndex], 4));
     msgIndex = msgSizeIndex + 4;
     uint2Ascii(&raw_tx[msgIndex], msgSize, msg);
-    SPRINTF(extraInfo[4], "%s", compare_strings(msg, "true") == 0 ? "Yes" : "No");
-
-// //Requires Levy
-//     uint16_t levySizeIndex;
-//     uint32_t levySize;
-//     uint16_t insideLevyIndex;
+    SPRINTF(extraInfo[8], "%s", compare_strings(msg, "true") == 0 ? "Yes" : "No");
 
     //Requires Levy
     SPRINTF(detailName[9], "%s", "Requires Levy");
     levySizeIndex = msgIndex+msgSize;
     levySize = getUint32(reverseBytes(&raw_tx[levySizeIndex], 4));
-    SPRINTF(extraInfo[5], "%s", levySize == 0 ? "No" : "Yes");
+    SPRINTF(extraInfo[9], "%s", levySize == 0 ? "No" : "Yes");
 
     //Rental Fee
     SPRINTF(detailName[3], "%s", "Rental Fee");
     amountIndex = levySizeIndex+levySize + 4+4+40;
     amount = getUint32(reverseBytes(&raw_tx[amountIndex], 4));
-    print_amount((uint64_t *)amount, 6, "xem",mainInfo[3]);
+    print_amount((uint64_t *)amount, 6, "xem", extraInfo[3]);
     //End Properties
 }
 
 void parse_mosaic_supply_change_tx (unsigned char raw_tx[],
     unsigned int* ux_step_count, 
-    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
-    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
-    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH],
+    char detailName[MAX_PRINT_SCREEN][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char extraInfo[MAX_PRINT_SCREEN][MAX_PRINT_EXTRA_INFOR_LENGTH],
     bool isMultisig) {
 
     //Fee
@@ -521,7 +539,7 @@ void parse_mosaic_supply_change_tx (unsigned char raw_tx[],
     lengthOfID = getUint32(reverseBytes(&raw_tx[lengthOfIDIndex], 4));
     IDNameIndex= lengthOfIDIndex+4;
     uint2Ascii(&raw_tx[IDNameIndex], lengthOfID, IDName);
-    SPRINTF(mainInfo[0], "%s", IDName);
+    SPRINTF(extraInfo[0], "%s", IDName);
 
     //Mosaic Name
     SPRINTF(detailName[1], "%s", "Mosaic Name");
@@ -529,7 +547,7 @@ void parse_mosaic_supply_change_tx (unsigned char raw_tx[],
     lengthOfName = getUint32(reverseBytes(&raw_tx[lengthOfNameIndex], 4));
     nameIndex = lengthOfNameIndex+4;
     uint2Ascii(&raw_tx[nameIndex], lengthOfName, name);
-    SPRINTF(mainInfo[1], "%s", name);
+    SPRINTF(extraInfo[1], "%s", name);
 
     //Fee
     SPRINTF(detailName[2], "%s", "Fee");
@@ -537,7 +555,7 @@ void parse_mosaic_supply_change_tx (unsigned char raw_tx[],
     if (isMultisig) {
         fee += 150000;
     }
-    print_amount((uint64_t *)fee, 6, "xem", &mainInfo[2]);
+    print_amount((uint64_t *)fee, 6, "xem", &extraInfo[2]);
 
     //Supply type
     supplyType = getUint32(reverseBytes(&raw_tx[nameIndex+lengthOfName], 4));
@@ -547,14 +565,13 @@ void parse_mosaic_supply_change_tx (unsigned char raw_tx[],
     } else { //Decrease supply 
         SPRINTF(detailName[3], "%s", "Decrease");
     }
-    SPRINTF(mainInfo[3], "%d", quantity);
+    SPRINTF(extraInfo[3], "%d", quantity);
 }
 
 void parse_provision_namespace_tx (unsigned char raw_tx[],
     unsigned int* ux_step_count, 
-    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
-    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
-    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH],
+    char detailName[MAX_PRINT_SCREEN][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char extraInfo[MAX_PRINT_SCREEN][MAX_PRINT_EXTRA_INFOR_LENGTH],
     bool isMultisig) {
 
     //Fee
@@ -578,16 +595,16 @@ void parse_provision_namespace_tx (unsigned char raw_tx[],
     //Sink Address
     SPRINTF(detailName[0], "%s", "Sink Address");
     uint2Ascii(&raw_tx[4+4+4+4+32+4+4+4+4], 40, tmpAddress);
-    os_memset(mainInfo[0], 0, sizeof(mainInfo[0]));                
-    os_memmove((void *)mainInfo[0], tmpAddress, 6);
-    os_memmove((void *)(mainInfo[0] + 6), "~", 1);
-    os_memmove((void *)(mainInfo[0] + 6 + 1), tmpAddress + 40 - 4, 4);
+    os_memset(extraInfo[0], 0, sizeof(extraInfo[0]));                
+    os_memmove((void *)extraInfo[0], tmpAddress, 6);
+    os_memmove((void *)(extraInfo[0] + 6), "~", 1);
+    os_memmove((void *)(extraInfo[0] + 6 + 1), tmpAddress + 40 - 4, 4);
 
     //Rental Fee
     SPRINTF(detailName[1], "%s", "Rental Fee");
     quantityIndex = 4+4+4+4+32+4+4+4+4+40;
     quantity = getUint32(reverseBytes(&raw_tx[quantityIndex], 4));
-    print_amount((uint64_t *)quantity, 6, "xem", mainInfo[1]);
+    print_amount((uint64_t *)quantity, 6, "xem", extraInfo[1]);
 
     //Fee
     SPRINTF(detailName[2], "%s", "Fee");
@@ -595,7 +612,7 @@ void parse_provision_namespace_tx (unsigned char raw_tx[],
     if (isMultisig) {
         fee += 150000;
     }
-    print_amount((uint64_t *)fee, 6, "xem", &mainInfo[2]);
+    print_amount((uint64_t *)fee, 6, "xem", &extraInfo[2]);
 
     //Namespace
     SPRINTF(detailName[3], "%s", "Namespace");
@@ -603,27 +620,27 @@ void parse_provision_namespace_tx (unsigned char raw_tx[],
     msgSize = getUint32(reverseBytes(&raw_tx[msgSizeIndex], 4));
     msgIndex = msgSizeIndex + 4;
     uint2Ascii(&raw_tx[msgIndex], msgSize, msg);
-    SPRINTF(mainInfo[3], "%s", msg);
+    SPRINTF(extraInfo[3], "%s", msg);
 
     //Parent namespace
     SPRINTF(detailName[4], "%s", "Parent Name");
     msgSizeIndex = msgIndex + msgSize;
     msgSize = getUint32(reverseBytes(&raw_tx[msgSizeIndex], 4));
     if (msgSize == -1) {
-        SPRINTF(extraInfo[0], "%s", "<New namespace>"); 
+        SPRINTF(extraInfo[4], "%s", "<New namespace>"); 
     } else {
         msgIndex = msgSizeIndex + 4;
         uint2Ascii(&raw_tx[msgIndex], msgSize, msg);
-        SPRINTF(extraInfo[0], "%s", msg);
+        SPRINTF(extraInfo[4], "%s", msg);
     }
 }
 
 void parse_aggregate_modification_tx (unsigned char raw_tx[],
     unsigned int* ux_step_count,
-    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
-    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
-    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH],
-    bool isMultisig) {
+    char detailName[MAX_PRINT_SCREEN][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char extraInfo[MAX_PRINT_SCREEN][MAX_PRINT_EXTRA_INFOR_LENGTH],
+    bool isMultisig,
+    uint8_t networkId) {
 
     //Fee
     uint64_t fee;
@@ -631,47 +648,79 @@ void parse_aggregate_modification_tx (unsigned char raw_tx[],
     //Cosign Address
     uint16_t    numOfCosigModificationIndex;
     uint8_t     numOfCosigModification;
-    uint16_t    cosignAddressIndex;
-    char        cosignAddress[41];
+    uint16_t    cosignPublicKeyIndex;
+    char        cosignAddress[40];
     uint16_t    typeOfModificationIndex;
     uint8_t     typeOfModification;
     uint8_t     index;
 
     //Min signatures
     uint16_t    minSigIndex;
-    uint8_t     minSig;
+    int8_t      minSig;
 
-    *ux_step_count = 4;
+    *ux_step_count = 2;
 
     //Cosignatures
-
-    //Stop here
     numOfCosigModificationIndex = 4+4+4+4+32+8+4;
     numOfCosigModification = getUint32(reverseBytes(&raw_tx[numOfCosigModificationIndex], 4));
     typeOfModificationIndex = numOfCosigModificationIndex + 4;
+
     for (index = 0; index < numOfCosigModification; index++) {
         *ux_step_count = *ux_step_count + 1;
         typeOfModificationIndex += 4;
         typeOfModification = getUint32(reverseBytes(&raw_tx[typeOfModificationIndex], 4));
-        PRINTF("type modi: %x\n", typeOfModification);
-        typeOfModificationIndex += 4+32;
+
+        cosignPublicKeyIndex = typeOfModificationIndex +4+4;
+        public_key_to_address (networkId, &raw_tx[cosignPublicKeyIndex], cosignAddress);
+
+        //Top line
+        if (typeOfModification == 0x01) {
+            SPRINTF(detailName[index], "%s", "Add cosign");
+        } else {
+            SPRINTF(detailName[index], "%s", "Remove cosign");
+        }
+        //Bottom line
+        os_memset(extraInfo[index], 0, sizeof(extraInfo[index]));                
+        os_memmove((void *)extraInfo[index], cosignAddress, 6);
+        os_memmove((void *)(extraInfo[index] + 6), "~", 1);
+        os_memmove((void *)(extraInfo[index] + 6 + 1), cosignAddress + 40 - 4, 4);
+
+        typeOfModificationIndex = typeOfModificationIndex + 4 + 4 + 32;
+        numOfCosigModificationIndex = typeOfModificationIndex;
     }
 
+    //Min signatures
+    minSigIndex = numOfCosigModification == 0 ? numOfCosigModificationIndex + 4+4 : numOfCosigModificationIndex +4;
+    minSig = getUint32(reverseBytes(&raw_tx[minSigIndex], 4));
+    if (minSig > 0) {
+        SPRINTF(detailName[numOfCosigModification], "%s", "Num of minsig");
+        SPRINTF(extraInfo[numOfCosigModification], "Increase %d", minSig);
+
+    } else if (minSig < 0) {
+        SPRINTF(detailName[numOfCosigModification], "%s", "Num of minsig");
+        SPRINTF(extraInfo[numOfCosigModification], "Decrease %d", ~minSig + 1);
+    }
+    if (minSig != 0) {
+        numOfCosigModification += 1;
+        *ux_step_count = *ux_step_count + 1;
+    }
+    PRINTF("num: %d\n", minSig);
+
     //Fee
-    SPRINTF(detailName[2], "%s", "Fee");
+    SPRINTF(detailName[numOfCosigModification], "%s", "Fee");
     fee = getUint32(reverseBytes(&raw_tx[4+4+4+4+32], 4));
     if (isMultisig) {
         fee += 150000;
     }
-    print_amount((uint64_t *)fee, 6, "xem", &mainInfo[2]);
+    print_amount((uint64_t *)fee, 6, "xem", &extraInfo[numOfCosigModification]);
 
 }
 
 void parse_multisig_tx (unsigned char raw_tx[],
     unsigned int* ux_step_count, 
-    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
-    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
-    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH]) {
+    char detailName[MAX_PRINT_SCREEN][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char extraInfo[MAX_PRINT_SCREEN][MAX_PRINT_EXTRA_INFOR_LENGTH],
+    uint8_t networkId) {
     
     uint32_t otherTxType = getUint32(reverseBytes(&raw_tx[0], 4));
 
@@ -680,7 +729,6 @@ void parse_multisig_tx (unsigned char raw_tx[],
             parse_transfer_tx (raw_tx,
                 ux_step_count, 
                 detailName,
-                mainInfo,
                 extraInfo,
                 true
             );
@@ -689,7 +737,6 @@ void parse_multisig_tx (unsigned char raw_tx[],
             parse_provision_namespace_tx (raw_tx,
                 ux_step_count, 
                 detailName,
-                mainInfo,
                 extraInfo,
                 true
             );
@@ -698,7 +745,6 @@ void parse_multisig_tx (unsigned char raw_tx[],
             parse_mosaic_definition_tx (raw_tx,
                 ux_step_count, 
                 detailName,
-                mainInfo,
                 extraInfo,
                 true
             );
@@ -707,7 +753,6 @@ void parse_multisig_tx (unsigned char raw_tx[],
             parse_mosaic_supply_change_tx (raw_tx,
                 ux_step_count, 
                 detailName,
-                mainInfo,
                 extraInfo,
                 true
             );
@@ -716,9 +761,9 @@ void parse_multisig_tx (unsigned char raw_tx[],
             parse_aggregate_modification_tx (raw_tx,
                 ux_step_count, 
                 detailName,
-                mainInfo,
                 extraInfo,
-                true
+                true,
+                networkId
             );
             break;
         default:
@@ -728,9 +773,8 @@ void parse_multisig_tx (unsigned char raw_tx[],
 
 void parse_multisig_signature_tx (unsigned char raw_tx[],
     unsigned int* ux_step_count,
-    char detailName[12][MAX_PRINT_DETAIL_NAME_LENGTH],
-    char mainInfo[4][MAX_PRINT_MAIN_INFOR_LENGTH],
-    char extraInfo[8][MAX_PRINT_EXTRA_INFOR_LENGTH]) {
+    char detailName[MAX_PRINT_SCREEN][MAX_PRINT_DETAIL_NAME_LENGTH],
+    char extraInfo[MAX_PRINT_SCREEN][MAX_PRINT_EXTRA_INFOR_LENGTH]) {
 
     //Fee
     uint8_t multisigFeeIndex;
@@ -752,10 +796,10 @@ void parse_multisig_signature_tx (unsigned char raw_tx[],
     SPRINTF(detailName[0], "%s", "Cosign tx for");
     multisigAddressIndex = 4+4+4+4+32+8+4+4+4+32+4;
     uint2Ascii(&raw_tx[multisigAddressIndex], 40, multisigAddress);
-    os_memset(mainInfo[0], 0, sizeof(mainInfo[0]));                
-    os_memmove((void *)mainInfo[0], multisigAddress, 6);
-    os_memmove((void *)(mainInfo[0] + 6), "~", 1);
-    os_memmove((void *)(mainInfo[0] + 6 + 1), multisigAddress + 40 - 4, 4);
+    os_memset(extraInfo[0], 0, sizeof(extraInfo[0]));                
+    os_memmove((void *)extraInfo[0], multisigAddress, 6);
+    os_memmove((void *)(extraInfo[0] + 6), "~", 1);
+    os_memmove((void *)(extraInfo[0] + 6 + 1), multisigAddress + 40 - 4, 4);
 
     PRINTF("add: %s\n", multisigAddress);
 
@@ -767,14 +811,14 @@ void parse_multisig_signature_tx (unsigned char raw_tx[],
         hashBytes[2*index + 1] = hex2Ascii(raw_tx[index + hashBytesIndex] & 0x0f);
     }
     PRINTF("hash: %s\n", hashBytes);
-    os_memset(mainInfo[1], 0, sizeof(mainInfo[1]));                
-    os_memmove((void *)mainInfo[1], hashBytes, 6);
-    os_memmove((void *)(mainInfo[1] + 6), "~", 1);
-    os_memmove((void *)(mainInfo[1] + 6 + 1), hashBytes + 64 - 4, 4);
+    os_memset(extraInfo[1], 0, sizeof(extraInfo[1]));                
+    os_memmove((void *)extraInfo[1], hashBytes, 6);
+    os_memmove((void *)(extraInfo[1] + 6), "~", 1);
+    os_memmove((void *)(extraInfo[1] + 6 + 1), hashBytes + 64 - 4, 4);
 
     //Multisig fee
     SPRINTF(detailName[2], "%s", "Multisig fee");
     multisigFeeIndex = 4+4+4+4+32;
     fee = getUint32(reverseBytes(&raw_tx[multisigFeeIndex], 4));
-    print_amount((uint64_t *)fee, 6, "xem", &mainInfo[2]);
+    print_amount((uint64_t *)fee, 6, "xem", &extraInfo[2]);
 }
