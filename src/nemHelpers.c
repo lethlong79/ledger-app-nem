@@ -306,6 +306,36 @@ void parse_transfer_tx (unsigned char raw_tx[],
     lengthOfMessFeild = getUint32(reverseBytes(&raw_tx[lengthOfMessFeildIndex], 4));
     msgSizeIndex = lengthOfMessFeild == 0 ? 0 : lengthOfMessFeildIndex+4+4;
     msgSize = lengthOfMessFeild == 0 ? 0 : getUint32(reverseBytes(&raw_tx[msgSizeIndex], 4));
+    msgTypeIndex = lengthOfMessFeildIndex+4;
+    msgIndex = lengthOfMessFeildIndex+4+4+4;
+    msgType = getUint32(reverseBytes(&raw_tx[msgTypeIndex], 4));
+    if (lengthOfMessFeild == 0) {
+        SPRINTF(extraInfo[1], "%s\0", "<empty msg>");
+    }
+    else if(msgType == 1) {
+        if (raw_tx[msgIndex] == 0xFE) {
+            SPRINTF(detailName[1], "%s", "Hex message");
+            msgIndex++;
+            for (arrayIndex = 0; (arrayIndex < msgSize - 1) && (arrayIndex*2 < 12); arrayIndex++) {
+                msg[2*arrayIndex] = hex2Ascii((raw_tx[msgIndex + arrayIndex] & 0xf0) >> 4);
+                msg[2*arrayIndex + 1] = hex2Ascii(raw_tx[msgIndex + arrayIndex] & 0x0f);
+                msg[2*arrayIndex + 2] = '\0';
+            }
+            if ( arrayIndex*2 + 1> MAX_PRINT_MESSAGE_LENGTH) {
+                SPRINTF(extraInfo[1], "%s ...\0", msg);
+            } else {
+                SPRINTF(extraInfo[1], "%s\0", msg);
+            }
+        } else if (msgSize > MAX_PRINT_MESSAGE_LENGTH) {
+            uint2Ascii(&raw_tx[msgIndex], MAX_PRINT_MESSAGE_LENGTH, msg);
+            SPRINTF(extraInfo[1], "%s ...\0", msg);
+        } else {
+            uint2Ascii(&raw_tx[msgIndex], msgSize, msg);
+            SPRINTF(extraInfo[1], "%s", msg);
+        }
+    } else {
+        SPRINTF(extraInfo[1], "%s\0", "<encrypted msg>");
+    }
 
     //Fee
     SPRINTF(detailName[2], "%s", "Fee");
@@ -361,25 +391,6 @@ void parse_transfer_tx (unsigned char raw_tx[],
             }
             mosaicIndex += 8;
         }
-    }
-
-    //msg
-    msgTypeIndex = lengthOfMessFeildIndex+4;
-    msgIndex = lengthOfMessFeildIndex+4+4+4;
-    msgType = getUint32(reverseBytes(&raw_tx[msgTypeIndex], 4));
-    if (lengthOfMessFeild == 0) {
-        SPRINTF(extraInfo[1], "%s\0", "<empty msg>");
-    }
-    else if(msgType == 1) {
-        if(msgSize > MAX_PRINT_MESSAGE_LENGTH){
-            uint2Ascii(&raw_tx[msgIndex], MAX_PRINT_MESSAGE_LENGTH, msg);
-            SPRINTF(extraInfo[1], "%s ...\0", msg);
-        }else{
-            uint2Ascii(&raw_tx[msgIndex], msgSize, msg);
-            SPRINTF(extraInfo[1], "%s\0", msg);
-        }
-    } else {
-        SPRINTF(extraInfo[1], "%s\0", "<encrypted msg>");
     }
 }
 
