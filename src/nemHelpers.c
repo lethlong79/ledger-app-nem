@@ -659,8 +659,8 @@ void parse_aggregate_modification_tx (unsigned char raw_tx[],
     //Cosign Address
     uint16_t    numOfCosigModificationIndex;
     uint8_t     numOfCosigModification;
-    uint16_t    cosignPublicKeyIndex;
-    char        cosignAddress[40];
+    uint16_t    publicKeyIndex;
+    char        address[40];
     uint16_t    typeOfModificationIndex;
     uint8_t     typeOfModification;
     uint8_t     index;
@@ -669,7 +669,20 @@ void parse_aggregate_modification_tx (unsigned char raw_tx[],
     uint16_t    minSigIndex;
     int8_t      minSig;
 
-    *ux_step_count = 2;
+    *ux_step_count = 3;
+
+    //Multisig Account
+    publicKeyIndex = 4+4+4+4;
+    public_key_to_address (networkId, &raw_tx[publicKeyIndex], address);
+    if (isMultisig) { //Affected
+        SPRINTF(detailName[0], "%s", "Edited account");
+    } else { //Converted
+        SPRINTF(detailName[0], "%s", "Converted Acc");
+    }
+    os_memset(extraInfo[0], 0, sizeof(extraInfo[0]));                
+    os_memmove((void *)extraInfo[0], address, 6);
+    os_memmove((void *)(extraInfo[0] + 6), "~", 1);
+    os_memmove((void *)(extraInfo[0] + 6 + 1), address + 40 - 4, 4);
 
     //Cosignatures
     numOfCosigModificationIndex = 4+4+4+4+32+8+4;
@@ -681,20 +694,20 @@ void parse_aggregate_modification_tx (unsigned char raw_tx[],
         typeOfModificationIndex += 4;
         typeOfModification = getUint32(reverseBytes(&raw_tx[typeOfModificationIndex], 4));
 
-        cosignPublicKeyIndex = typeOfModificationIndex +4+4;
-        public_key_to_address (networkId, &raw_tx[cosignPublicKeyIndex], cosignAddress);
+        publicKeyIndex = typeOfModificationIndex +4+4;
+        public_key_to_address (networkId, &raw_tx[publicKeyIndex], address);
 
         //Top line
         if (typeOfModification == 0x01) {
-            SPRINTF(detailName[index], "%s", "Add cosign");
+            SPRINTF(detailName[index+1], "%s", "Add cosign");
         } else {
-            SPRINTF(detailName[index], "%s", "Remove cosign");
+            SPRINTF(detailName[index+1], "%s", "Remove cosign");
         }
         //Bottom line
-        os_memset(extraInfo[index], 0, sizeof(extraInfo[index]));                
-        os_memmove((void *)extraInfo[index], cosignAddress, 6);
-        os_memmove((void *)(extraInfo[index] + 6), "~", 1);
-        os_memmove((void *)(extraInfo[index] + 6 + 1), cosignAddress + 40 - 4, 4);
+        os_memset(extraInfo[index+1], 0, sizeof(extraInfo[index+1]));                
+        os_memmove((void *)extraInfo[index+1], address, 6);
+        os_memmove((void *)(extraInfo[index+1] + 6), "~", 1);
+        os_memmove((void *)(extraInfo[index+1] + 6 + 1), address + 40 - 4, 4);
 
         typeOfModificationIndex = typeOfModificationIndex + 4 + 4 + 32;
         numOfCosigModificationIndex = typeOfModificationIndex;
@@ -704,27 +717,24 @@ void parse_aggregate_modification_tx (unsigned char raw_tx[],
     minSigIndex = numOfCosigModification == 0 ? numOfCosigModificationIndex + 4+4 : numOfCosigModificationIndex +4;
     minSig = getUint32(reverseBytes(&raw_tx[minSigIndex], 4));
     if (minSig > 0) {
-        SPRINTF(detailName[numOfCosigModification], "%s", "Num of minsig");
-        SPRINTF(extraInfo[numOfCosigModification], "Increase %d", minSig);
-
+        SPRINTF(detailName[numOfCosigModification+1], "%s", "Num of minsig");
+        SPRINTF(extraInfo[numOfCosigModification+1], "Increase %d", minSig);
     } else if (minSig < 0) {
-        SPRINTF(detailName[numOfCosigModification], "%s", "Num of minsig");
-        SPRINTF(extraInfo[numOfCosigModification], "Decrease %d", ~minSig + 1);
+        SPRINTF(detailName[numOfCosigModification+1], "%s", "Num of minsig");
+        SPRINTF(extraInfo[numOfCosigModification+1], "Decrease %d", ~minSig + 1);
     }
     if (minSig != 0) {
         numOfCosigModification += 1;
         *ux_step_count = *ux_step_count + 1;
     }
-    PRINTF("num: %d\n", minSig);
 
     //Fee
-    SPRINTF(detailName[numOfCosigModification], "%s", "Fee");
+    SPRINTF(detailName[numOfCosigModification+1], "%s", "Fee");
     fee = getUint32(reverseBytes(&raw_tx[4+4+4+4+32], 4));
     if (isMultisig) {
         fee += 150000;
     }
-    print_amount((uint64_t *)fee, 6, "xem", &extraInfo[numOfCosigModification]);
-
+    print_amount((uint64_t *)fee, 6, "xem", &extraInfo[numOfCosigModification+1]);
 }
 
 void parse_multisig_tx (unsigned char raw_tx[],

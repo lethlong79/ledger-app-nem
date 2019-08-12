@@ -760,7 +760,18 @@ void display_tx(uint8_t *raw_tx, uint16_t dataLength,
                 extraInfo,
                 false
             ); 
-            break; 
+            break;
+        case NEMV1_MULTISIG_MODIFICATION:
+            disIndex = 21;
+            SPRINTF(txTypeName, "%s", "Convert2Multisig");
+            parse_aggregate_modification_tx (raw_tx + disIndex,
+                &ux_step_count, 
+                detailName,
+                extraInfo,
+                false,
+                tmpCtx.transactionContext.networkId
+            ); 
+            break;
         case NEMV1_MULTISIG_SIGNATURE:
             SPRINTF(txTypeName, "%s", "Mulisig signature");
             disIndex = 21;
@@ -917,6 +928,8 @@ void nem_main(void) {
                     hashTainted = 1;
                     THROW(0x6982);
                 }
+
+                PRINTF("New APDU received:\n%.*H\n", rx, G_io_apdu_buffer);
 
                 // if the buffer doesn't start with the magic byte, return an error.
                 if (G_io_apdu_buffer[OFFSET_CLA] != CLA) {
