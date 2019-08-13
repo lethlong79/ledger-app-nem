@@ -285,7 +285,7 @@ const char * const ui_approval_details[][2] = {
     {detailName[8], extraInfo[8]},
     {detailName[9], extraInfo[9]},
     {detailName[10], extraInfo[10]},
-    {detailName[11], extraInfo[11]},
+    // {detailName[11], extraInfo[11]},
 };
 
 const bagl_element_t ui_approval_nanos[] = {
