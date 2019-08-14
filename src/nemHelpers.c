@@ -40,7 +40,6 @@ uint8_t readNetworkIdFromBip32path(uint32_t bip32Path[]) {
             outNetworkId = 144; //S
             break;
         default:
-            PRINTF("NETWORKID_INVALID\n");
             THROW(0x6a80);
     }
     return outNetworkId;

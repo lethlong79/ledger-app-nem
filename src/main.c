@@ -285,7 +285,6 @@ const char * const ui_approval_details[][2] = {
     {detailName[8], extraInfo[8]},
     {detailName[9], extraInfo[9]},
     {detailName[10], extraInfo[10]},
-    // {detailName[11], extraInfo[11]},
 };
 
 const bagl_element_t ui_approval_nanos[] = {
@@ -371,14 +370,6 @@ unsigned int ui_approval_prepro(const bagl_element_t *element) {
     return display;
 }*/
 
-/*
- ux_step 0: confirm
-         1: amount 
-         2: address
-         3: message
-         4: [txType]
-         5: fees
-*/
 unsigned int ui_approval_prepro(const bagl_element_t *element) {
     unsigned int display = 1;
     if (element->component.userid > 0) {
@@ -394,22 +385,21 @@ unsigned int ui_approval_prepro(const bagl_element_t *element) {
                 os_memmove(&tmp_element, element, sizeof(bagl_element_t));                
                 display = ux_step - 1;
                 switch(display) {
-                    case 0: // recipient address 
+                    case 0:
                     display_detail:
                         tmp_element.text = ui_approval_details[display][(element->component.userid)>>4];
                         break;
-                    case 1: // message
-                    case 2: // fees
-                    case 3: // amount
-                    case 4: // mosaic 1
-                    case 5: // mosaic 2
-                    case 6: // mosaic 3                     
-                    case 7: // mosaic 4                     
-                    case 8: // mosaic 5                     
-                    case 9: // mosaic 6                     
-                    case 10: // mosaic 7                     
-                    case 11: // mosaic 8                     
-                    case 12: // mosaic 9
+                    case 1: 
+                    case 2: 
+                    case 3: 
+                    case 4: 
+                    case 5: 
+                    case 6:                     
+                    case 7:                     
+                    case 8:                     
+                    case 9:                   
+                    case 10:                     
+                    case 11:                     
                         if (display == (ux_step_count - 1)) {
                             maxInterval--;//back home 
                         }                     
@@ -928,8 +918,6 @@ void nem_main(void) {
                     hashTainted = 1;
                     THROW(0x6982);
                 }
-
-                PRINTF("New APDU received:\n%.*H\n", rx, G_io_apdu_buffer);
 
                 // if the buffer doesn't start with the magic byte, return an error.
                 if (G_io_apdu_buffer[OFFSET_CLA] != CLA) {
