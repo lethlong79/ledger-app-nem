@@ -18,7 +18,7 @@
     "eslint-plugin-react": "^7.12.4",
     "iview": "^3.2.2",
     "layui-src": "^2.4.5",
-    "moment": "^2.24.0",
+    "moment": "^2.29.2",
     "nem-sdk": "^1.6.7",
     "nem2-sdk": "^0.10.3-4",
     "vue": "^2.5.22"
